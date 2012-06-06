@@ -1,0 +1,128 @@
+#!python
+
+# Load libraries
+import sys
+import getopt
+import time
+
+import yaml
+import numpy as np
+from mpi4py import MPI
+
+from cplate import deconvolve_em
+
+HELP = '''
+Usage: cplate_deconvolve_em [options] CONFIG
+
+Options:
+  -h, --help            Show this help message and exit
+  -c CHROM, --chrom=CHROM
+                        Index of chromosome to analyze; defaults to 1
+  --null                Run using null input from CONFIG
+
+Details of the required format for the YAML CONFIG file can be found it further
+documentation.
+'''
+
+def main(argv):
+    '''
+    Main function for option-parsing and startup.
+    
+    Takes sys.argv[1:] as input.
+    '''
+    # Set default values for options
+    chrom   = 1
+    null    = False
+    
+    # Parse arguments and options
+    opts, args = getopt.getopt(argv, "hc:",
+                               ["help", "chrom", "null"])
+    for option, value in opts:
+        if option in ('-h', "--help"):
+            print >> sys.stderr, HELP
+            sys.exit(2)
+        elif option in ('-c', '--chrom'):
+            chrom = int(value)
+        elif option == '--null':
+            null = True
+        else:
+            print >> sys.stderr, "Error -- unknown option %s" % option
+            sys.exit(1)
+
+    if len(args) > 0:
+        cfg_path = args[0]
+    else:
+        print >> sys.stderr, "Error -- need path to YAML configuration"
+        sys.exit(1)
+    
+    # Parse YAML configuration
+    cfg_file = open(cfg_path, 'rb')
+    cfg = yaml.load(cfg_file)
+    cfg_file.close()
+    
+    # Start MPI communications
+    comm = MPI.COMM_WORLD
+    
+    # Get process information
+    rank = comm.Get_rank()
+    n_proc = comm.Get_size()
+    
+    # Load data
+    data = deconvolve_em.load_data(chrom=chrom, cfg=cfg, null=null)
+    
+    # Run global initialization
+    init = deconvolve_em.initialize(data=data, cfg=cfg, rank=rank)
+    
+    if rank == deconvolve_em.MPIROOT:
+        # Run estimation
+        results = deconvolve_em.master(comm=comm, n_proc=n_proc, data=data,
+                                       init=init, cfg=cfg)
+        
+        # Save results
+
+        # Save coefficients
+        if null:
+            coef_pattern = cfg['estimation_output']['null_coef_pattern']
+        else:
+            coef_pattern = cfg['estimation_output']['coef_pattern']
+        coef_pattern = coef_pattern.strip()
+
+        coef_path = coef_pattern.format(**cfg) % chrom
+        np.savetxt(coef_path, results['theta'], '%.10g', '\t')
+        
+        # Save (lower bounds on) standard errors
+        if null:
+            se_pattern = cfg['estimation_output']['null_se_pattern']
+        else:
+            se_pattern = cfg['estimation_output']['se_pattern']
+        se_pattern = se_pattern.strip()
+
+        se_path = se_pattern.format(**cfg) % chrom
+        np.savetxt(se_path, np.sqrt(results['var_theta']), '%.10g', '\t')
+                   
+        # Save parameters
+        if null:
+            param_pattern = cfg['estimation_output']['null_param_pattern']
+        else:
+            param_pattern = cfg['estimation_output']['param_pattern']
+        param_pattern = param_pattern.strip()
+
+        param_path = param_pattern.format(**cfg) % chrom
+        
+        header = '\t'.join(("region_type", "mu", "sigmasq")) + '\n'
+        
+        param_file = open(param_path , "wb")
+        param_file.write(header)
+        for region_type in data['region_ids']:
+            line = [ str(x) for x in (region_type,
+                                      results['mu'][int(region_type)],
+                                      results['sigmasq'][int(region_type)] )]
+            param_file.write('\t'.join(line) + '\n')
+        param_file.close()
+    else:
+        deconvolve_em.worker(comm=comm, rank=rank, n_proc=n_proc, data=data,
+                             init=init, cfg=cfg)
+
+if __name__ == '__main__':
+    main(sys.argv[1:])
+
