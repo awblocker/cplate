@@ -63,65 +63,13 @@ def main(argv):
     # Start MPI communications
     comm = MPI.COMM_WORLD
     
-    # Get process information
-    rank = comm.Get_rank()
-    n_proc = comm.Get_size()
-    
-    # Load data
-    data = deconvolve_em.load_data(chrom=chrom, cfg=cfg, null=null)
-    
-    # Run global initialization
-    init = deconvolve_em.initialize(data=data, cfg=cfg, rank=rank)
-    
-    if rank == deconvolve_em.MPIROOT:
-        # Run estimation
-        results = deconvolve_em.master(comm=comm, n_proc=n_proc, data=data,
-                                       init=init, cfg=cfg)
-        
-        # Save results
+    # Run estimation
+    results = deconvolve_em.run(cfg=cfg, comm=comm, chrom=chrom, null=null)
 
-        # Save coefficients
-        if null:
-            coef_pattern = cfg['estimation_output']['null_coef_pattern']
-        else:
-            coef_pattern = cfg['estimation_output']['coef_pattern']
-        coef_pattern = coef_pattern.strip()
-
-        coef_path = coef_pattern.format(**cfg) % chrom
-        np.savetxt(coef_path, results['theta'], '%.10g', '\t')
-        
-        # Save (lower bounds on) standard errors
-        if null:
-            se_pattern = cfg['estimation_output']['null_se_pattern']
-        else:
-            se_pattern = cfg['estimation_output']['se_pattern']
-        se_pattern = se_pattern.strip()
-
-        se_path = se_pattern.format(**cfg) % chrom
-        np.savetxt(se_path, np.sqrt(results['var_theta']), '%.10g', '\t')
-                   
-        # Save parameters
-        if null:
-            param_pattern = cfg['estimation_output']['null_param_pattern']
-        else:
-            param_pattern = cfg['estimation_output']['param_pattern']
-        param_pattern = param_pattern.strip()
-
-        param_path = param_pattern.format(**cfg) % chrom
-        
-        header = '\t'.join(("region_type", "mu", "sigmasq")) + '\n'
-        
-        param_file = open(param_path , "wb")
-        param_file.write(header)
-        for region_type in data['region_ids']:
-            line = [ str(x) for x in (region_type,
-                                      results['mu'][int(region_type)],
-                                      results['sigmasq'][int(region_type)] )]
-            param_file.write('\t'.join(line) + '\n')
-        param_file.close()
-    else:
-        deconvolve_em.worker(comm=comm, rank=rank, n_proc=n_proc, data=data,
-                             init=init, cfg=cfg)
+    if comm.Get_rank() == deconvolve_em.MPIROOT:
+        # Write output to files
+        deconvolve_em.write_results(results=results, cfg=cfg, chrom=chrom,
+                                    null=null)
 
 if __name__ == '__main__':
     main(sys.argv[1:])

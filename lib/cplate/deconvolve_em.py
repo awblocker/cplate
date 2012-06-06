@@ -211,6 +211,8 @@ def master(comm, n_proc, data, init, cfg):
             MAP estimates of log-mean (mu) parameters.
         - sigmasq : ndarray
             MAP estimates of log-variance (sigmasq) parameters.
+        - region_ids : integer ndarray
+            Vector of distinct region ids.
     '''
     # Create references to frequently-accessed config information    
     # Prior on mu - sigmasq / 2
@@ -515,7 +517,8 @@ def master(comm, n_proc, data, init, cfg):
     out = {'theta' : theta,
            'var_theta' : var_theta,
            'mu' : mu,
-           'sigmasq' : sigmasq}
+           'sigmasq' : sigmasq,
+           'region_ids' : region_ids}
     return out
 
 def worker(comm, rank, n_proc, data, init, cfg):
@@ -605,4 +608,109 @@ def worker(comm, rank, n_proc, data, init, cfg):
         elif status.Get_tag() == UPDATETAG:
             # Update value of theta for next job within given outer loop
             comm.Recv(theta, source=MPIROOT, tag=MPI.ANY_TAG)
+
+def run(cfg, comm=None, chrom=1, null=False):
+    '''
+    Coordinate parallel estimation based upon process rank.
+
+    Parameters
+    ----------
+        - cfg : dictionary
+            Dictionary containing (at least) prior and estimation_params
+            sections with appropriate entries.
+        - comm : mpi4py.MPI.COMM
+            Initialized MPI communicator. If None, it will be set to
+            MPI.COMM_WORLD.
+        - chrom : int
+            Index (starting from 1) of chromosome to extract.
+        - null : bool
+            If null, use null reads instead of actual.
+
+    Returns
+    -------
+        For master process, dictionary from master() function. Else, None.
+    '''
+    if comm is None:
+        # Start MPI communications if no comm provided
+        comm = MPI.COMM_WORLD
+    
+    # Get process information
+    rank = comm.Get_rank()
+    n_proc = comm.Get_size()
+    
+    # Load data
+    data = load_data(chrom=chrom, cfg=cfg, null=null)
+    
+    # Run global initialization
+    init = initialize(data=data, cfg=cfg, rank=rank)
+    
+    if rank == MPIROOT:
+        # Run estimation
+        results = master(comm=comm, n_proc=n_proc, data=data, init=init,
+                         cfg=cfg)
+        return results
+    else:
+        worker(comm=comm, rank=rank, n_proc=n_proc, data=data, init=init,
+               cfg=cfg)
+        return
+
+def write_results(results, cfg, chrom=1, null=False):
+    '''
+    Write results from estimation to appropriate files.
+
+    Parameters
+    ----------
+        - results : dictionary
+            Estimation results as output from master() function.
+        - cfg : dictionary
+            Dictionary containing (at least) prior and estimation_params
+            sections with appropriate entries.
+        - chrom : int
+            Index (starting from 1) of chromosome to extract.
+        - null : bool
+            If null, write to null paths instead of defaults.
+
+    Returns
+    -------
+        None
+    '''
+    # Save coefficients
+    if null:
+        coef_pattern = cfg['estimation_output']['null_coef_pattern']
+    else:
+        coef_pattern = cfg['estimation_output']['coef_pattern']
+    coef_pattern = coef_pattern.strip()
+
+    coef_path = coef_pattern.format(**cfg) % chrom
+    np.savetxt(coef_path, results['theta'], '%.10g', '\t')
+    
+    # Save (lower bounds on) standard errors
+    if null:
+        se_pattern = cfg['estimation_output']['null_se_pattern']
+    else:
+        se_pattern = cfg['estimation_output']['se_pattern']
+    se_pattern = se_pattern.strip()
+
+    se_path = se_pattern.format(**cfg) % chrom
+    np.savetxt(se_path, np.sqrt(results['var_theta']), '%.10g', '\t')
+               
+    # Save parameters
+    if null:
+        param_pattern = cfg['estimation_output']['null_param_pattern']
+    else:
+        param_pattern = cfg['estimation_output']['param_pattern']
+    param_pattern = param_pattern.strip()
+
+    param_path = param_pattern.format(**cfg) % chrom
+    
+    header = '\t'.join(("region_type", "mu", "sigmasq")) + '\n'
+    
+    param_file = open(param_path , "wb")
+    param_file.write(header)
+    for region_type in results['region_ids']:
+        line = [ str(x) for x in (region_type,
+                                  results['mu'][int(region_type)],
+                                  results['sigmasq'][int(region_type)]) ]
+        param_file.write('\t'.join(line) + '\n')
+    param_file.close()
 
