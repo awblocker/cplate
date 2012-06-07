@@ -183,14 +183,17 @@ def detect(cfg, chrom=1):
         param_path = cfg['estimation_output']['param_pattern']
         param_path = param_path.format(**cfg).strip() 
         param_path = param_path % chrom
-        mu, sigmasq = np.loadtxt(param_path, unpack=True)[1:]
+        mu, sigmasq = np.loadtxt(param_path, unpack=True, skiprows=1)[1:]
+        
+        mu = np.ravel(mu)
+        sigmasq = np.ravel(sigmasq)
         
         # Compute n_se for detection
         n_se = -stats.norm.ppf(cfg['detection_params']['alpha'])
         
         # Detect positions based upon both FDR and Bayes criteria
-        detected = np.where(coef > results_fdr['thresh_vec'][region_types] &
-                            np.log(coef) - n_se*se > mu['region_types'])[0]        
+        detected = np.where((coef > results_fdr['thresh_vec'][region_types]) &
+                            (np.log(coef) - n_se*se > mu[region_types]))[0]        
     else:
         detected = np.arange(coef.size, dtype=np.integer)
     
