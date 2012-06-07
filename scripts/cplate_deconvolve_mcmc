@@ -78,7 +78,7 @@ def main(argv):
 
     # Set default chrom value
     if chrom_list is None:
-        chrom_list = 1
+        chrom_list = [1]
 
     if len(args) > 0:
         cfg_paths = args
