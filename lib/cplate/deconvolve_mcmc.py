@@ -487,10 +487,10 @@ def worker(comm, rank, n_proc, data, init, cfg):
                                 template).T, diags=range(-w+1, w),
                                 m=size_block, n=size_block)
                                
-            info = -lib.ddloglik(theta=theta_hat, theta0=theta[block],
-                                 X=X, Xt=X, y=y[block], 
-                                 region_types=region_types[block],
-                                 subset=subset, log=True)
+            info = lib.ddloglik(theta=theta_hat, theta0=theta[block],
+                                X=X, Xt=X, y=y[block], 
+                                region_types=region_types[block],
+                                subset=subset, log=True)
             
             # Propose from multivariate normal distribution
             info_factor = cholmod.cholesky(info)
