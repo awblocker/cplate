@@ -12,12 +12,14 @@ from mpi4py import MPI
 from cplate import detect
 
 HELP = '''
-Usage: cplate_detect_em [options] CONFIG
+Usage: cplate_detect_em [options] CONFIG [CONFIG ...]
 
 Options:
   -h, --help            Show this help message and exit
   -c CHROM, --chrom=CHROM
-                        Index of chromosome to analyze; defaults to 1
+                        Comma-separated indices of chromosomes to analyze;
+                        defaults to 1
+  --all                 Run all chromosomes
 
 Details of the required format for the YAML CONFIG file can be found it further
 documentation.
@@ -30,33 +32,45 @@ def main(argv):
     Takes sys.argv[1:] as input.
     '''
     # Set default values for options
-    chrom   = 1
+    chrom_list  = None
+    run_all     = False
     
     # Parse arguments and options
-    opts, args = getopt.getopt(argv, "hc:", ["help", "chrom="])
+    opts, args = getopt.getopt(argv, "hc:", ["help", "chrom=", "all"])
     for option, value in opts:
         if option in ('-h', "--help"):
             print >> sys.stderr, HELP
             sys.exit(2)
         elif option in ('-c', '--chrom'):
-            chrom = int(value)
+            chrom_list = [int(x) for x in value.split(',')]
+        elif option == '--all':
+            run_all = True
         else:
             print >> sys.stderr, "Error -- unknown option %s" % option
             sys.exit(1)
+    
+    # Check for logical consistency
+    if run_all and (chrom_list is not None):
+        print >> sys.stderr, "Error -- cannot have all with chrom"
+        sys.exit(1)
 
     if len(args) > 0:
-        cfg_path = args[0]
+        cfg_paths = args
     else:
         print >> sys.stderr, "Error -- need path to YAML configuration"
         sys.exit(1)
     
-    # Parse YAML configuration
-    cfg_file = open(cfg_path, 'rb')
-    cfg = yaml.load(cfg_file)
-    cfg_file.close()
-    
-    
-    detect.detect(cfg=cfg, chrom=chrom)
+    for cfg_path in cfg_paths:
+        # Parse YAML configuration
+        cfg_file = open(cfg_path, 'rb')
+        cfg = yaml.load(cfg_file)
+        cfg_file.close()
+        
+        if run_all:
+            chrom_list = range(1, cfg['data']['n_chrom']+1)
+        
+        for chrom in chrom_list:
+            detect.detect(cfg=cfg, chrom=chrom)
 
 if __name__ == '__main__':
     main(sys.argv[1:])
