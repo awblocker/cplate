@@ -1,8 +1,6 @@
 import sys
-import getopt
 import time
 
-import yaml
 import numpy as np
 from scipy import sparse
 from scipy.sparse import linalg as splinalg
@@ -242,7 +240,6 @@ def master(comm, n_proc, data, init, cfg):
     adapt_prior = (mu0 is None)
     
     # Create references to relevant data entries in local scope
-    chrom       = data['chrom']
     y           = data['y']
     template    = data['template']
     region_types = data['region_types']

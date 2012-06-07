@@ -61,7 +61,7 @@ def estimate_threshold_bh(alpha, p_nonnull):
 
     n_detected = np.max(np.where(p_sorted * k/n <= alpha)[0])
 
-    return p_sorted[n_detected:n_detected+2]/2.
+    return np.mean(p_sorted[n_detected:n_detected+2])
     
 def integrate_interval(arg_tuple):
     '''
@@ -328,93 +328,3 @@ def get_fdr_threshold_bh(null, nonnull, region_list, alpha, maxima=False,
         thresh_list.append(thresh)
         
     return np.array(thresh_list)
-
-def calculate_fdr_threshold_vector(chrom, cfg):
-    # Extract commonly-used data from cfg
-    alpha       = cfg['detection_params']['alpha']
-    n_proc      = cfg['detection_params']['n_proc']
-    maxima      = cfg['detection_params']['maxima_only']
-    method      = cfg['detection_params']['method_fdr']
-    verbose     = cfg['detection_params']['verbose']
-    
-    # Load null coefficients
-    null_path = cfg['estimation_output']['null_coef_pattern']
-    null_path = null_path.format(**cfg).strip() 
-    null_path = null_path % chrom
-    null = np.loadtxt(null_path)
-    
-    # Load nonnull coefficients
-    nonnull_path = cfg['estimation_output']['coef_pattern']
-    nonnull_path = nonnull_path.format(**cfg).strip() 
-    nonnull_path = nonnull_path % chrom
-    nonnull = np.loadtxt(nonnull_path)
-
-    # Load region type information
-    with open(cfg['data']['regions_path'], 'rb') as f:
-        lines_read = 0
-        for line in f:
-            lines_read += 1
-            if lines_read == chrom:
-                region_types = np.fromstring(line.strip(), sep=' ', dtype=int)
-                break
-    
-    region_types = region_types[:null.size]
-    region_types -= region_types.min()
-    region_ids = np.unique(region_types)
-    
-    region_list = []
-    region_lengths = []
-    for id in region_ids:
-        region_list.append( np.where(region_types==id)[0] )
-        region_lengths.append( np.sum(region_types==id) )
-    
-    region_lengths = np.array(region_lengths)
-    
-    # Calculate threshold for given FDR
-    if method.lower() == 'bh':
-        thresh_vec = get_fdr_threshold_bh(null=null, nonnull=nonnull,
-                                          region_list=region_list, alpha=alpha,
-                                          maxima=maxima, n_proc=n_proc,
-                                          verbose=verbose)
-    elif method.lower() == 'direct':
-        thresh_vec = get_fdr_threshold_estimate(null, nonnull, region_list,
-                                                alpha, maxima=maxima,
-                                                n_proc=n_proc, verbose=verbose)
-    else:
-        thresh_vec = get_fdr_threshold(null, nonnull, region_list, alpha,
-                                       maxima=maxima)
-
-    result = {'thresh_vec' : thresh_vec,
-              'region_ids' : region_ids,
-              'alpha' : alpha}
-
-    return result
-
-def write_fdr_thresholds(result, cfg, chrom=1):
-    '''
-    Output FDR threshold vector to appropriate file.
-
-    Parameters
-    ----------
-        - result : ndarray
-            Dictionary as returned by calculate_fdr_threshold_vector.
-        - cfg : dictionary
-            Dictionary containing at least detection_output section wth
-            appropriate parameters.
-
-    Returns
-    -------
-        None
-    '''
-    # Output detection threshold by region to appropriate path
-    out_path = cfg['detection_output']['fdr_pattern'].format(**cfg).strip()
-    out_path = out_path % chrom
-    
-    n_regions = result['region_ids'].size
-    
-    np.savetxt(out_path, np.vstack((result['alpha']*np.ones(n_regions),
-                                    result['region_ids'],
-                                    result['thresh_vec'])).T,
-               fmt="%.15g")
-    
-
