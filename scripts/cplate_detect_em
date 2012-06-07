@@ -33,7 +33,7 @@ def main(argv):
     chrom   = 1
     
     # Parse arguments and options
-    opts, args = getopt.getopt(argv, "hc:", ["help", "chrom"])
+    opts, args = getopt.getopt(argv, "hc:", ["help", "chrom="])
     for option, value in opts:
         if option in ('-h', "--help"):
             print >> sys.stderr, HELP
