@@ -37,7 +37,7 @@ def main(argv):
     # Set default values for options
     chrom_list  = None
     null        = False
-    both        = True
+    both        = False
     run_all     = False
     
     # Parse arguments and options
