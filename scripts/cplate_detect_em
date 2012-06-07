@@ -1,0 +1,63 @@
+#!python
+
+# Load libraries
+import sys
+import getopt
+import time
+
+import yaml
+import numpy as np
+from mpi4py import MPI
+
+from cplate import detect
+
+HELP = '''
+Usage: cplate_detect_em [options] CONFIG
+
+Options:
+  -h, --help            Show this help message and exit
+  -c CHROM, --chrom=CHROM
+                        Index of chromosome to analyze; defaults to 1
+
+Details of the required format for the YAML CONFIG file can be found it further
+documentation.
+'''
+
+def main(argv):
+    '''
+    Main function for option-parsing and startup.
+    
+    Takes sys.argv[1:] as input.
+    '''
+    # Set default values for options
+    chrom   = 1
+    
+    # Parse arguments and options
+    opts, args = getopt.getopt(argv, "hc:", ["help", "chrom"])
+    for option, value in opts:
+        if option in ('-h', "--help"):
+            print >> sys.stderr, HELP
+            sys.exit(2)
+        elif option in ('-c', '--chrom'):
+            chrom = int(value)
+        else:
+            print >> sys.stderr, "Error -- unknown option %s" % option
+            sys.exit(1)
+
+    if len(args) > 0:
+        cfg_path = args[0]
+    else:
+        print >> sys.stderr, "Error -- need path to YAML configuration"
+        sys.exit(1)
+    
+    # Parse YAML configuration
+    cfg_file = open(cfg_path, 'rb')
+    cfg = yaml.load(cfg_file)
+    cfg_file.close()
+    
+    
+    detect.detect(cfg=cfg, chrom=chrom)
+
+if __name__ == '__main__':
+    main(sys.argv[1:])
+
