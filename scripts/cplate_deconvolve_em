@@ -38,7 +38,7 @@ def main(argv):
     chrom_list  = None
     null        = False
     both        = True
-    run_all     = True
+    run_all     = False
     
     # Parse arguments and options
     opts, args = getopt.getopt(argv, "hc:",
