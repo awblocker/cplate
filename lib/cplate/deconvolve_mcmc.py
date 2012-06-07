@@ -1,5 +1,8 @@
 import sys
 import time
+import bz2
+import contextlib
+import cPickle
 
 import numpy as np
 from scipy import sparse
@@ -642,3 +645,14 @@ def write_results(results, cfg, chrom=1, null=False):
         param_file.write('\t'.join(line) + '\n')
     param_file.close()
 
+def pickle_results(results, cfg, chrom=1, null=False):
+    if null:
+        out_pattern = cfg['mcmc_output']['null_out_pattern']
+    else:
+        out_pattern = cfg['mcmc_output']['out_pattern']
+    out_pattern = out_pattern.strip()
+    
+    out_path = out_pattern.format(**cfg) % chrom
+    
+    with contextlib.closing(bz2.BZ2File(open(out_path, 'rb'))) as f:
+        cPickle.dump(results, f)
