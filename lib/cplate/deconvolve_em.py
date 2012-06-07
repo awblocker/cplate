@@ -433,9 +433,10 @@ def master(comm, n_proc, data, init, cfg):
                 if not fix_sigmasq:
                     sigmasq[r] = np.mean( (logb[region]-mu[r])**2 )
                     sigmasq[r] += np.mean( var_theta[region] )
-                    sigmasq[r] += k0*(mu[r]-mu0)**2
-                    sigmasq[r] += 2*b0/region_sizes[r]
-                    sigmasq[r] /= (1 + 2./region_sizes[r] + a0/region_sizes[r])
+                    sigmasq[r] += k0*(mu[r]-prior_mean[r])**2
+                    sigmasq[r] += 2.*b0/region_sizes[r]
+                    sigmasq[r] /= (1 + 3./region_sizes[r] +
+                                   2.*a0/region_sizes[r])
             
             if verbose:
                 if timing: print >> sys.stderr, ( "Mean & variance time: %s" %
