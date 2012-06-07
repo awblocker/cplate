@@ -106,9 +106,9 @@ def main(argv):
                                           null=null)
 
             if comm.Get_rank() == deconvolve_mcmc.MPIROOT:
-                # Write output to files
-                deconvolve_mcmc.write_results(results=results, cfg=cfg,
-                                              chrom=chrom, null=null)
+                # Write compressed pickle output
+                deconvolve_mcmc.pickle_results(results=results, cfg=cfg,
+                                               chrom=chrom, null=null)
 
 if __name__ == '__main__':
     main(sys.argv[1:])
