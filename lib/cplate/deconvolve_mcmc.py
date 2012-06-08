@@ -150,6 +150,7 @@ def initialize(data, cfg, rank=None):
     y            = data['y']
     region_list  = data['region_list']
     region_ids   = data['region_ids']
+    region_sizes = data['region_sizes']
     
     # Compute needed data properties
     n_regions = region_ids.size
@@ -157,14 +158,22 @@ def initialize(data, cfg, rank=None):
     # Initialize nucleotide-level occupancies
     theta = np.log(y+1.0)
     
-    # Initialize mu using method-of-moments estimator based on prior variance
-    sigmasq0 = b0 / a0
-    mu = np.ones(n_regions)
-    mu[region_ids] = np.array([theta[region_list[r]].mean() -
-                              sigmasq0 / 2.0 for r in region_ids])
-    
-    # Initialize sigmasq based upon prior mean
-    sigmasq = np.ones(n_regions)*sigmasq0
+    # Initialize mu and sigmasq with correct posterior draw
+    mu = np.zeros(n_regions)
+    sigmasq = np.ones(n_regions)    
+    for r in region_ids:
+        region = region_list[r]
+        
+        # Draw sigmasq from marginal distribution
+        shape_sigmasq   = region_sizes[r]/.2 + a0
+        rate_sigmasq    = np.var(theta[region])*region_sizes[r]/2. + b0
+        sigmasq[r]     = 1./np.random.gamma(shape=shape_sigmasq,
+                                             scale=1./rate_sigmasq)
+        
+        # Draw mu | sigmasq
+        mean_mu = np.mean(theta[region])
+        var_mu  = sigmasq[r] / region_sizes[r]
+        mu[r]   = mean_mu + np.sqrt(var_mu)*np.random.randn(1)
     
     if verbose:
         print "Node %d initialization complete" % rank
@@ -287,12 +296,12 @@ def master(comm, n_proc, data, init, cfg):
     
     # Start timing, if requested
     if timing:
-            tme = time.clock()
+        tme = time.clock()
     
     # Setup blocks for worker nodes
     # This is the scan algorithm with a 4-iteration cycle.
     # It is designed to ensure consistent sampling coverage of the chromosome.
-    start_vec = []
+    start_vec = [None]*4
     for sweep in xrange(4):
         if sweep%2 < 1:
             start0 = 0
@@ -321,7 +330,7 @@ def master(comm, n_proc, data, init, cfg):
         
         # Coordinate the workers into the synchronization state
         for k in range(1, n_workers+1):
-            comm.Send(np.array(0, dtype='i'), MPI.INT, dest=k, tag=SYNCTAG)
+            comm.Send([np.array(0, dtype='i'), MPI.INT], dest=k, tag=SYNCTAG)
             
         # Broadcast theta and parameter values to all workers
         comm.Bcast(theta[t-1], root=MPIROOT)
@@ -354,7 +363,7 @@ def master(comm, n_proc, data, init, cfg):
             worker = status.Get_source()
             start = assigned[worker-1]
             accept_stats[start:(start+block_width)] += status.Get_tag()
-            theta[start:(start+block_width)] = ret_val
+            theta[t,start:(start+block_width)] = ret_val
             
             # If all jobs are not complete, update theta on the just-finished
             # worker and send another job.
@@ -384,13 +393,16 @@ def master(comm, n_proc, data, init, cfg):
             
             # Draw mu | sigmasq
             mean_mu = (np.mean(theta[t,region]) + prior_mean[r]*k0)/(1.0 + k0)
-            var_mu  = sigmasq[t,r] / (1. + k0)
+            var_mu  = sigmasq[t,r] / (1. + k0) / region_sizes[r]
             mu[t,r] = mean_mu + np.sqrt(var_mu)*np.random.randn(1)
         
         if verbose:
             if timing: print >> sys.stderr, ( "Iteration time: %s" %
                                               (time.clock() - tme) )
-            if verbose > 1: print mu, sigmasq
+            
+            print accept_stats.mean()
+            print mu[t]
+            print sigmasq[t]
         
         if timing:
             tme = time.clock()
@@ -407,7 +419,7 @@ def master(comm, n_proc, data, init, cfg):
            'region_ids' : region_ids}
     return out
 
-def worker(comm, rank, n_proc, data, init, cfg):
+def worker(comm, rank, n_proc, data, init, cfg, prop_df=3.):
     '''
     Worker-node process for parallel MCMC sampler.
     Receives parameters and commands from master node, sends draws of theta.
@@ -475,65 +487,72 @@ def worker(comm, rank, n_proc, data, init, cfg):
             subset = slice(w*(start!=0)+start-block.start,
                            end-block.start-w*(end!=chrom_length))
             original = slice(start-block.start, end-block.start)
-            size_block = block.stop - block.start
+            size_subset = subset.stop - subset.start
+            
+            theta_block     = theta[block]
+            theta_subset    = theta_block[subset]
             
             # Run optimization to obtain conditional posterior mode
             theta_hat = lib.deconvolve(lib.loglik_convolve, lib.dloglik_convolve,
                                        y[block], region_types[block], template,
                                        mu, sigmasq,
-                                       subset=subset, theta0=theta[block],
+                                       subset=subset, theta0=theta_block,
                                        log=True,
                                        messages=0)[0]
             
             # Compute (sparse) conditional observed information
-            X = sparse.spdiags((np.ones((template.size,size_block)).T *
+            X = sparse.spdiags((np.ones((template.size,size_subset)).T *
                                 template).T, diags=range(-w+1, w),
-                                m=size_block, n=size_block)
+                                m=size_subset, n=size_subset)
+            X = X.tocsr()
                                
-            info = lib.ddloglik(theta=theta_hat, theta0=theta[block],
-                                X=X, Xt=X, y=y[block], 
-                                region_types=region_types[block],
-                                subset=subset, log=True)
+            info = lib.ddloglik(theta=theta_hat,
+                                theta0=theta_hat,
+                                X=X, Xt=X, y=y[block][subset],
+                                mu=mu, sigmasq=sigmasq,
+                                region_types=region_types[block][subset],
+                                subset=None, log=True)
             
             # Propose from multivariate normal distribution
             info_factor = cholmod.cholesky(info)
-            z = np.random.randn(size_block)
-            theta_draw = theta_hat + info_factor.solve_Lt(z)
-            theta_prop = theta[block]
-            theta_prop[subset] = theta_draw[subset]
+            z = np.random.standard_t(df=prop_df, size=size_subset)
+            #
+            theta_draw = info_factor.solve_Lt(z / np.sqrt(info_factor.D()))
+            theta_draw = info_factor.solve_Pt(theta_draw)
+            theta_draw = theta_draw.flatten()
+            theta_draw += theta_hat
+            #
+            theta_prop = theta_block.copy()
+            theta_prop[subset] = theta_draw
             
             # Compute log target and proposal ratios
-            log_target_ratio = lib.loglik_convolve(theta=theta_prop,
-                                               y=y[block],
-                                               region_types=region_types[block],
-                                               template=template, mu=mu,
-                                               sigmasq=sigmasq, subset=subset,
-                                               theta0=theta[block])
-            log_target_ratio -= lib.loglik_convolve(theta=theta[block],
-                                               y=y[block],
-                                               region_types=region_types[block],
-                                               template=template, mu=mu,
-                                               sigmasq=sigmasq, subset=subset,
-                                               theta0=theta[block])
+            log_target_ratio = -lib.loglik_convolve(theta=theta_prop,
+                                       y=y[block],
+                                       region_types=region_types[block],
+                                       template=template, mu=mu,
+                                       sigmasq=sigmasq, subset=None,
+                                       theta0=theta_prop, log=True)
+            log_target_ratio -= -lib.loglik_convolve(theta=theta_block,
+                                       y=y[block],
+                                       region_types=region_types[block],
+                                       template=template, mu=mu,
+                                       sigmasq=sigmasq, subset=None,
+                                       theta0=theta_block, log=True)
             
-            log_prop_ratio = -0.5*np.sum(z[subset]**2 - theta[block[subset]] *
-                                         info * theta[block[subset]])
+            zsq_prev = np.dot(theta_subset-theta_hat,
+                              info*(theta_subset-theta_hat))
+            log_prop_ratio = -0.5*(prop_df+1)*(np.sum(np.log(1 + z**2/prop_df))-
+                                                np.log(1 + zsq_prev / prop_df))
             
             # Execute MH step
             log_accept_prob = log_target_ratio - log_prop_ratio
-            if np.log(np.random.uniform() < log_accept_prob):
+            if np.log(np.random.uniform()) < log_accept_prob:
                 accept = 1
-                
-                # Build resulting subset of new theta
-                ret_val = theta[block]
-                ret_val[subset] = theta_prop[subset]
-                ret_val = ret_val[original]
+                ret_val = theta_prop[original]
             else:
                 accept = 0
-                
-                ret_val = theta[block[original]]
-            
-            
+                ret_val = theta_block[original]
+                        
             # Transmit result
             comm.Send(ret_val, dest=MPIROOT, tag=accept)
         elif status.Get_tag() == UPDATETAG:
