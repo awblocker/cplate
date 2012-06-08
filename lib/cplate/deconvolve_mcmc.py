@@ -378,13 +378,13 @@ def master(comm, n_proc, data, init, cfg):
                 assigned[worker-1] = start_vec[n_started]          
                 n_started += 1
         
-        # Draw region-level parameters given occupancies
+        # (2) Draw region-level parameters given occupancies
         
         for r in region_ids:
             region = region_list[r]
             
             # Draw sigmasq from marginal distribution
-            shape_sigmasq   = region_sizes[r]/.2 + a0
+            shape_sigmasq   = region_sizes[r]/2. + a0
             rate_sigmasq    = (np.var(theta[t,region])*region_sizes[r]/2. + b0
                                + k0*region_sizes[r]/(1.+k0)*
                                np.mean((theta[t,region]) - mu0)**2)
@@ -397,8 +397,8 @@ def master(comm, n_proc, data, init, cfg):
             mu[t,r] = mean_mu + np.sqrt(var_mu)*np.random.randn(1)
         
         if verbose:
-            if timing: print >> sys.stderr, ( "Iteration time: %s" %
-                                              (time.clock() - tme) )
+            if timing: print >> sys.stderr, ( "%d:\tIteration time: %s" %
+                                              (t, time.clock() - tme) )
             
             print accept_stats.mean()
             print mu[t]
