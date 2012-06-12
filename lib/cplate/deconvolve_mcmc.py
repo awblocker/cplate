@@ -167,7 +167,7 @@ def initialize(data, cfg, rank=None):
         # Draw sigmasq from marginal distribution
         shape_sigmasq   = region_sizes[r]/.2 + a0
         rate_sigmasq    = np.var(theta[region])*region_sizes[r]/2. + b0
-        sigmasq[r]     = 1./np.random.gamma(shape=shape_sigmasq,
+        sigmasq[r]      = 1./np.random.gamma(shape=shape_sigmasq,
                                              scale=1./rate_sigmasq)
         
         # Draw mu | sigmasq
@@ -387,7 +387,7 @@ def master(comm, n_proc, data, init, cfg):
             shape_sigmasq   = region_sizes[r]/2. + a0
             rate_sigmasq    = (np.var(theta[t,region])*region_sizes[r]/2. + b0
                                + k0*region_sizes[r]/(1.+k0)*
-                               np.mean((theta[t,region]) - mu0)**2)
+                               (np.mean(theta[t,region]) - prior_mean[r])**2)
             sigmasq[t,r]    = 1./np.random.gamma(shape=shape_sigmasq,
                                                  scale=1./rate_sigmasq)
             
@@ -400,7 +400,7 @@ def master(comm, n_proc, data, init, cfg):
             if timing: print >> sys.stderr, ( "%d:\tIteration time: %s" %
                                               (t, time.clock() - tme) )
             
-            print accept_stats.mean()
+            print accept_stats.mean(0)
             print mu[t]
             print sigmasq[t]
         
@@ -483,17 +483,19 @@ def worker(comm, rank, n_proc, data, init, cfg, prop_df=3.):
         elif status.Get_tag() == WORKTAG:            
             # Calculate subset of data to work on
             end = start + block_width
-            block = slice(max(0,start-w), end+w-max(0,end+w-chrom_length))
-            subset = slice(w*(start!=0)+start-block.start,
-                           end-block.start-w*(end!=chrom_length))
-            original = slice(start-block.start, end-block.start)
+            block = slice(start, end)
+            subset = slice(w*(start!=0),
+                           block_width-w*(end!=chrom_length))
+            #
+            size_block  = block.stop - block.start
             size_subset = subset.stop - subset.start
             
             theta_block     = theta[block]
             theta_subset    = theta_block[subset]
             
             # Run optimization to obtain conditional posterior mode
-            theta_hat = lib.deconvolve(lib.loglik_convolve, lib.dloglik_convolve,
+            theta_hat = lib.deconvolve(lib.loglik_convolve,
+                                       lib.dloglik_convolve,
                                        y[block], region_types[block], template,
                                        mu, sigmasq,
                                        subset=subset, theta0=theta_block,
@@ -501,17 +503,20 @@ def worker(comm, rank, n_proc, data, init, cfg, prop_df=3.):
                                        messages=0)[0]
             
             # Compute (sparse) conditional observed information
-            X = sparse.spdiags((np.ones((template.size,size_subset)).T *
+            X = sparse.spdiags((np.ones((template.size,size_block)).T *
                                 template).T, diags=range(-w+1, w),
-                                m=size_subset, n=size_subset)
+                                m=size_block, n=size_block)
             X = X.tocsr()
                                
             info = lib.ddloglik(theta=theta_hat,
-                                theta0=theta_hat,
-                                X=X, Xt=X, y=y[block][subset],
+                                theta0=theta_block,
+                                X=X, Xt=X, y=y[block],
                                 mu=mu, sigmasq=sigmasq,
-                                region_types=region_types[block][subset],
-                                subset=None, log=True)
+                                region_types=region_types[block],
+                                subset=subset, log=True)
+            info = info[subset,:]
+            info = info.tocsc()
+            info = info[:,subset]
             
             # Propose from multivariate normal distribution
             info_factor = cholmod.cholesky(info)
@@ -548,10 +553,10 @@ def worker(comm, rank, n_proc, data, init, cfg, prop_df=3.):
             log_accept_prob = log_target_ratio - log_prop_ratio
             if np.log(np.random.uniform()) < log_accept_prob:
                 accept = 1
-                ret_val = theta_prop[original]
+                ret_val = theta_prop
             else:
                 accept = 0
-                ret_val = theta_block[original]
+                ret_val = theta_block
                         
             # Transmit result
             comm.Send(ret_val, dest=MPIROOT, tag=accept)

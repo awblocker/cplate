@@ -582,10 +582,9 @@ def worker(comm, rank, n_proc, data, init, cfg):
         elif status.Get_tag() == WORKTAG:            
             # Calculate subset of data to work on
             end = start + block_width
-            block = slice(max(0,start-w), end+w-max(0,end+w-chrom_length))
-            subset = slice(w*(start!=0)+start-block.start,
-                           end-block.start-w*(end!=chrom_length))
-            original = slice(start-block.start, end-block.start)
+            block = slice(start, end)
+            subset = slice(w*(start!=0),
+                           block_width-w*(end!=chrom_length))
             
             # Run optimization
             result = lib.deconvolve(lib.loglik_convolve, lib.dloglik_convolve,
@@ -598,7 +597,6 @@ def worker(comm, rank, n_proc, data, init, cfg):
             # Build resulting subset of new theta
             ret_val = theta[block]
             ret_val[subset] = result[0]
-            ret_val = ret_val[original]
             
             # Transmit result
             comm.Send(ret_val, dest=MPIROOT, tag=start)
