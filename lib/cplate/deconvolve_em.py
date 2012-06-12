@@ -351,6 +351,9 @@ def master(comm, n_proc, data, init, cfg):
         n_started    = 0
         n_completed  = 0
         
+        # Randomize block ordering
+        np.random.shuffle(start_vec)
+        
         # Send first batch of jobs
         for k in range(1,min(n_workers, start_vec.size)+1):
             comm.send((start_vec[n_started],log), dest=k, tag=WORKTAG)
