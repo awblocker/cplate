@@ -109,10 +109,11 @@ def ddloglik(theta, y, region_types, X, Xt, subset, theta0,
         csr_scale_columns(Z, b)
         csr_scale_rows(Zt, b)
     H = Zt * Z
-    if log: H = H + sparse.spdiags( Xt * ( omega*(lam-y)/lam )*b,
-                                    0, X.shape[1], X.shape[1], 'csr' )
+    if log:
+        grad = Xt * ( omega*(lam-y)/lam )
+        H = H + sparse.spdiags(grad*b, 0, X.shape[1], X.shape[1], 'csr' )
     #
-    Sigma_inv = sparse.spdiags( np.ones(X.shape[1])/sigmasq[region_types], 0,
+    Sigma_inv = sparse.spdiags(np.ones(X.shape[1])/sigmasq[region_types], 0,
                                X.shape[1], X.shape[1],
                                'csr' )
     if not log:
