@@ -298,32 +298,32 @@ def master(comm, n_proc, data, init, cfg):
     if timing:
         tme = time.clock()
     
-    # Setup blocks for worker nodes
-    # This is the scan algorithm with a 4-iteration cycle.
-    # It is designed to ensure consistent sampling coverage of the chromosome.
-    start_vec = [None]*4
-    for sweep in xrange(4):
-        if sweep%2 < 1:
-            start0 = 0
-        else:
-            start0 = block_width/4 - 1 + np.random.randint(block_width/2)
-        
-        if sweep%4 > 1:
-            start_vec[sweep] = np.arange(chrom_length-start0, block_width,
-                                         -block_width, dtype=int)
-            start_vec[sweep] -= block_width
-        else:
-            start_vec[sweep] = np.arange(start0, chrom_length-block_width,
-                                         block_width, dtype=int)
-    
-    start_vec = np.concatenate(start_vec)
-    
     assigned = np.zeros(n_workers, dtype='i')
     
     # Initialize acceptance statistics
     accept_stats = np.zeros(chrom_length, dtype='i')
         
     for t in xrange(1, max_iter):
+        # Setup blocks for worker nodes
+        # This is the scan algorithm with a 4-iteration cycle.
+        # It is designed to ensure consistent sampling coverage of the chromosome.
+        start_vec = [None]*4
+        for sweep in xrange(4):
+            if sweep%2 < 1:
+                start0 = 0
+            else:
+                start0 = block_width/4 - 1 + np.random.randint(block_width/2)
+            
+            if sweep%4 > 1:
+                start_vec[sweep] = np.arange(chrom_length-start0, block_width,
+                                             -block_width, dtype=np.int)
+                start_vec[sweep] -= block_width
+            else:
+                start_vec[sweep] = np.arange(start0, chrom_length-block_width,
+                                             block_width, dtype=np.int)
+        
+        start_vec = np.concatenate(start_vec)
+                                         
         # (1) Distributed draw of theta | mu, sigmasq, y on workers.
                     
         # First, synchronize parameters across all workers
@@ -402,7 +402,7 @@ def master(comm, n_proc, data, init, cfg):
             
             print np.mean(accept_stats)
             block = np.arange(chrom_length, dtype=np.int) / block_width
-            print np.bincount(block, weights=accept_stats)/np.bincount(block)
+            print np.bincount(block, weights=accept_stats)
             print mu[t]
             print sigmasq[t]
         
@@ -421,7 +421,7 @@ def master(comm, n_proc, data, init, cfg):
            'region_ids' : region_ids}
     return out
 
-def worker(comm, rank, n_proc, data, init, cfg, prop_df=3.):
+def worker(comm, rank, n_proc, data, init, cfg, prop_df=5.):
     '''
     Worker-node process for parallel MCMC sampler.
     Receives parameters and commands from master node, sends draws of theta.
@@ -473,7 +473,8 @@ def worker(comm, rank, n_proc, data, init, cfg, prop_df=3.):
     start = np.array(0)
     while working:
         # Receive task information
-        comm.Recv([start, MPI.INT], source=MPIROOT, tag=MPI.ANY_TAG, status=status)
+        comm.Recv([start, MPI.INT], source=MPIROOT, tag=MPI.ANY_TAG,
+                  status=status)
         
         if status.Get_tag() == STOPTAG:
             working = False
@@ -520,7 +521,18 @@ def worker(comm, rank, n_proc, data, init, cfg, prop_df=3.):
             info = info[:,subset]
             
             # Propose from multivariate normal distribution
-            info_factor = cholmod.cholesky(info)
+            try:
+                info_factor = cholmod.cholesky(info)
+            except:
+                # Always reject for these cases
+                accept = 0
+                ret_val = theta_block
+                
+                # Transmit result
+                comm.Send(ret_val, dest=MPIROOT, tag=accept)
+                
+                continue
+            
             z = np.random.standard_t(df=prop_df, size=size_subset)
             #
             theta_draw = info_factor.solve_Lt(z / np.sqrt(info_factor.D()))
