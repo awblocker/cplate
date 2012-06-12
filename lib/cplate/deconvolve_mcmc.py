@@ -228,7 +228,7 @@ def master(comm, n_proc, data, init, cfg):
     a0  = cfg['prior']['a0']
     b0  = cfg['prior']['b0']
     # Iteration limits
-    max_iter = cfg['estimation_params']['max_iter']
+    max_iter = cfg['estimation_params']['mcmc_iterations']
     # Verbosity
     verbose = cfg['estimation_params']['verbose']
     timing = cfg['estimation_params']['timing']
@@ -400,7 +400,9 @@ def master(comm, n_proc, data, init, cfg):
             if timing: print >> sys.stderr, ( "%d:\tIteration time: %s" %
                                               (t, time.clock() - tme) )
             
-            print accept_stats.mean(0)
+            print np.mean(accept_stats)
+            block = np.arange(chrom_length, dtype=np.int) / block_width
+            print np.bincount(block, weights=accept_stats)/np.bincount(block)
             print mu[t]
             print sigmasq[t]
         
@@ -505,8 +507,7 @@ def worker(comm, rank, n_proc, data, init, cfg, prop_df=3.):
             # Compute (sparse) conditional observed information
             X = sparse.spdiags((np.ones((template.size,size_block)).T *
                                 template).T, diags=range(-w+1, w),
-                                m=size_block, n=size_block)
-            X = X.tocsr()
+                                m=size_block, n=size_block, format='csr')
                                
             info = lib.ddloglik(theta=theta_hat,
                                 theta0=theta_block,
@@ -530,6 +531,17 @@ def worker(comm, rank, n_proc, data, init, cfg, prop_df=3.):
             theta_prop = theta_block.copy()
             theta_prop[subset] = theta_draw
             
+            # Check for overflow issues
+            if np.max(theta_prop) >= np.log(np.finfo(np.float).max)/2.:
+                # Always reject for these cases
+                accept = 0
+                ret_val = theta_block
+                
+                # Transmit result
+                comm.Send(ret_val, dest=MPIROOT, tag=accept)
+                
+                continue
+            
             # Compute log target and proposal ratios
             log_target_ratio = -lib.loglik_convolve(theta=theta_prop,
                                        y=y[block],
@@ -551,6 +563,7 @@ def worker(comm, rank, n_proc, data, init, cfg, prop_df=3.):
             
             # Execute MH step
             log_accept_prob = log_target_ratio - log_prop_ratio
+            #print log_target_ratio, log_prop_ratio, log_accept_prob
             if np.log(np.random.uniform()) < log_accept_prob:
                 accept = 1
                 ret_val = theta_prop
@@ -678,5 +691,5 @@ def pickle_results(results, cfg, chrom=1, null=False):
     
     out_path = out_pattern.format(**cfg) % chrom
     
-    with contextlib.closing(bz2.BZ2File(open(out_path, 'rb'))) as f:
+    with contextlib.closing(bz2.BZ2File(out_path, mode='wb')) as f:
         cPickle.dump(results, f)
