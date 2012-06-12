@@ -23,7 +23,7 @@ WORKTAG     = 2
 UPDATETAG   = 3
 
 # Interval between M-steps
-INTERVAL    = 4
+INTERVAL    = 1
 
 def load_data(chrom, cfg, null=False):
     '''
@@ -323,24 +323,18 @@ def master(comm, n_proc, data, init, cfg):
     if log: b_previous_interval = np.exp(theta.copy())
     else:   b_previous_interval = theta.copy()
     
+    # Setup blocks for worker nodes
+    # This is the scan algorithm with a 2-iteration cycle.
+    # It is designed to ensure consistent sampling coverage of the chromosome.
+    start_vec = [np.arange(0, chrom_length, block_width, dtype=np.int),
+                 np.arange(block_width/2, chrom_length, block_width, 
+                           dtype=np.int)]
+    start_vec = np.concatenate(start_vec)
+    
     while iter < max_iter and (not converged or iter < min_iter):
         # Store estimates from last iteration for convergence check
         if log: b_previous_iteration = np.exp(theta.copy())
         else:   b_previous_iteration = theta.copy()
-        
-        # Setup blocks for worker nodes
-        # This is the scan algorithm with a 4-iteration cycle.
-        # It is designed to minimize edge-effects from the blockwise
-        # optimization.
-        if iter%2 < 1: start0 = 0
-        else: start0 = block_width/4 - 1 + np.random.randint(block_width/2)
-        
-        if iter%4 > 1:
-            start_vec = np.arange(chrom_length-start0, block_width,
-                                  -block_width)
-            start_vec -= block_width
-        else:
-            start_vec = np.arange(start0, chrom_length-block_width, block_width)
             
         # First, synchronize parameters across all workers
         # Coordinate the workers into the synchronization state
@@ -370,7 +364,8 @@ def master(comm, n_proc, data, init, cfg):
                       status=status)
             n_completed += 1
             start = status.Get_tag()
-            theta[start:(start+block_width)] = ret_val
+            end = min(start+block_width, chrom_length)
+            theta[start:end] = ret_val[:end-start]
             
             # If all jobs are not complete, update theta on the just-finished
             # worker and send another job.
@@ -568,6 +563,7 @@ def worker(comm, rank, n_proc, data, init, cfg):
     # Prepare to receive tasks
     working = True
     status = MPI.Status()
+    ret_val = np.empty(block_width, dtype=np.float)
     while working:
         # Receive task information
         start, log = comm.recv(source=MPIROOT, tag=MPI.ANY_TAG, status=status)
@@ -581,10 +577,17 @@ def worker(comm, rank, n_proc, data, init, cfg):
             mu, sigmasq = params
         elif status.Get_tag() == WORKTAG:            
             # Calculate subset of data to work on
-            end = start + block_width
-            block = slice(start, end)
-            subset = slice(w*(start!=0),
-                           block_width-w*(end!=chrom_length))
+            end = min(chrom_length, start + block_width)
+            block = slice(max(start-w, 0), min(end+w, chrom_length))
+            size_block  = block.stop - block.start
+            
+            subset = slice(w*(start!=0)+start-block.start,
+                           size_block-w*(end!=chrom_length) - (block.stop-end))
+            
+            original = slice(start-block.start, size_block - (block.stop-end))
+            
+            # Setup initial return value
+            ret_val[end-start:] = 0
             
             # Run optimization
             result = lib.deconvolve(lib.loglik_convolve, lib.dloglik_convolve,
@@ -595,8 +598,9 @@ def worker(comm, rank, n_proc, data, init, cfg):
                                     messages=0)
             
             # Build resulting subset of new theta
-            ret_val = theta[block]
-            ret_val[subset] = result[0]
+            theta_new = theta[block]
+            theta_new[subset] = result[0]
+            ret_val[:end-start] = theta_new[original]
             
             # Transmit result
             comm.Send(ret_val, dest=MPIROOT, tag=start)
