@@ -436,7 +436,126 @@ def master(comm, n_proc, data, init, cfg):
            'region_ids' : region_ids}
     return out
 
-def worker(comm, rank, n_proc, data, init, cfg, prop_df=5.):
+def rmh_worker_theta(comm, block_width, start, y, template, theta, mu, sigmasq,
+                     region_types, prop_df=5.):
+    # Compute needed data properties
+    chrom_length = y.size
+    w = template.size/2 + 1
+    
+    # Calculate subset of data to work on
+    end = min(chrom_length, start + block_width)
+    block = slice(max(start-w, 0), min(end+w, chrom_length))
+    size_block  = block.stop - block.start
+
+    subset = slice(w*(start!=0)+start-block.start,
+                   size_block-w*(end!=chrom_length) - (block.stop-end))
+    size_subset = subset.stop - subset.start
+
+    original = slice(start-block.start, size_block - (block.stop-end))
+
+    theta_block     = theta[block]
+    theta_subset    = theta_block[subset]
+
+    # Setup initial return value
+    ret_val = np.empty(block_width)
+
+    # Run optimization to obtain conditional posterior mode
+    theta_hat = lib.deconvolve(lib.loglik_convolve,
+                               lib.dloglik_convolve,
+                               y[block], region_types[block], template,
+                               mu, sigmasq,
+                               subset=subset, theta0=theta_block,
+                               log=True,
+                               messages=0)[0]
+
+    # Compute (sparse) conditional observed information
+    X = sparse.spdiags((np.ones((template.size,size_block)).T *
+                        template).T, diags=range(-w+1, w),
+                        m=size_block, n=size_block, format='csr')
+
+    info = lib.ddloglik(theta=theta_hat,
+                        theta0=theta_block,
+                        X=X, Xt=X, y=y[block],
+                        mu=mu, sigmasq=sigmasq,
+                        region_types=region_types[block],
+                        subset=subset, log=True)
+    info = info[subset,:]
+    info = info.tocsc()
+    info = info[:,subset]
+
+    # Propose from multivariate t distribution
+    try:
+        info_factor = cholmod.cholesky(info)
+    except:
+        # Always reject for these cases
+        accept = 0
+        ret_val[:end-start] = theta_block[original]
+
+        # Transmit result
+        comm.Send(ret_val, dest=MPIROOT, tag=accept)
+
+        return
+
+    L, D = info_factor.L_D()
+    D = D.diagonal()
+    #
+    z = np.random.standard_t(df=prop_df, size=size_subset)
+    #
+    theta_draw = info_factor.solve_Lt(z / np.sqrt(D))
+    theta_draw = info_factor.solve_Pt(theta_draw)
+    theta_draw = theta_draw.flatten()
+    theta_draw += theta_hat
+    #
+    theta_prop = theta_block.copy()
+    theta_prop[subset] = theta_draw
+
+    # Check for overflow issues
+    if np.max(theta_prop) >= np.log(np.finfo(np.float).max)/2.:
+        # Always reject for these cases
+        accept = 0
+        ret_val[:end-start] = theta_block[original]
+
+        # Transmit result
+        comm.Send(ret_val, dest=MPIROOT, tag=accept)
+
+        return
+
+    # Demean and decorrelate previous draw
+    z_prev =  L.T * info_factor.solve_P(theta_subset-theta_hat)
+    z_prev = z_prev.flatten()
+    z_prev *= np.sqrt(D)
+
+    # Compute log target and proposal ratios
+    log_target_ratio = -lib.loglik_convolve(theta=theta_prop,
+                               y=y[block],
+                               region_types=region_types[block],
+                               template=template, mu=mu,
+                               sigmasq=sigmasq, subset=None,
+                               theta0=theta_prop, log=True)
+    log_target_ratio -= -lib.loglik_convolve(theta=theta_block,
+                               y=y[block],
+                               region_types=region_types[block],
+                               template=template, mu=mu,
+                               sigmasq=sigmasq, subset=None,
+                               theta0=theta_block, log=True)
+
+    log_prop_ratio = -0.5*(prop_df+1)*np.sum(np.log(1. + z**2/prop_df)-
+                                         np.log(1. + z_prev**2/prop_df))
+
+    # Execute MH step
+    log_accept_prob = log_target_ratio - log_prop_ratio
+    #print block, log_target_ratio, log_prop_ratio, log_accept_prob
+    if np.log(np.random.uniform()) < log_accept_prob:
+        accept = 1
+        ret_val[:end-start] = theta_prop[original]
+    else:
+        accept = 0
+        ret_val[:end-start] = theta_block[original]
+
+    # Transmit result
+    comm.Send(ret_val, dest=MPIROOT, tag=accept)
+
+def worker(comm, rank, n_proc, data, init, cfg):
     '''
     Worker-node process for parallel MCMC sampler.
     Receives parameters and commands from master node, sends draws of theta.
@@ -468,7 +587,6 @@ def worker(comm, rank, n_proc, data, init, cfg, prop_df=5.):
 
     # Compute needed data properties
     chrom_length = y.size
-    w = template.size/2 + 1
 
     # Extract needed initializations for parameters
     theta   = init['theta']
@@ -486,7 +604,7 @@ def worker(comm, rank, n_proc, data, init, cfg, prop_df=5.):
     working = True
     status = MPI.Status()
     start = np.array(0)
-    ret_val = np.empty(block_width)
+    
     while working:
         # Receive task information
         comm.Recv([start, MPI.INT], source=MPIROOT, tag=MPI.ANY_TAG,
@@ -500,118 +618,10 @@ def worker(comm, rank, n_proc, data, init, cfg, prop_df=5.):
             comm.Bcast(mu, root=MPIROOT)
             comm.Bcast(sigmasq, root=MPIROOT)
         elif status.Get_tag() == WORKTAG:
-            # Calculate subset of data to work on
-            end = min(chrom_length, start + block_width)
-            block = slice(max(start-w, 0), min(end+w, chrom_length))
-            size_block  = block.stop - block.start
-
-            subset = slice(w*(start!=0)+start-block.start,
-                           size_block-w*(end!=chrom_length) - (block.stop-end))
-            size_subset = subset.stop - subset.start
-
-            original = slice(start-block.start, size_block - (block.stop-end))
-
-            theta_block     = theta[block]
-            theta_subset    = theta_block[subset]
-
-            # Setup initial return value
-            ret_val[end-start:] = 0
-
-            # Run optimization to obtain conditional posterior mode
-            theta_hat = lib.deconvolve(lib.loglik_convolve,
-                                       lib.dloglik_convolve,
-                                       y[block], region_types[block], template,
-                                       mu, sigmasq,
-                                       subset=subset, theta0=theta_block,
-                                       log=True,
-                                       messages=0)[0]
-
-            # Compute (sparse) conditional observed information
-            X = sparse.spdiags((np.ones((template.size,size_block)).T *
-                                template).T, diags=range(-w+1, w),
-                                m=size_block, n=size_block, format='csr')
-
-            info = lib.ddloglik(theta=theta_hat,
-                                theta0=theta_block,
-                                X=X, Xt=X, y=y[block],
-                                mu=mu, sigmasq=sigmasq,
-                                region_types=region_types[block],
-                                subset=subset, log=True)
-            info = info[subset,:]
-            info = info.tocsc()
-            info = info[:,subset]
-
-            # Propose from multivariate t distribution
-            try:
-                info_factor = cholmod.cholesky(info)
-            except:
-                # Always reject for these cases
-                accept = 0
-                ret_val[:end-start] = theta_block[original]
-
-                # Transmit result
-                comm.Send(ret_val, dest=MPIROOT, tag=accept)
-
-                continue
-
-            L, D = info_factor.L_D()
-            D = D.diagonal()
-            #
-            z = np.random.standard_t(df=prop_df, size=size_subset)
-            #
-            theta_draw = info_factor.solve_Lt(z / np.sqrt(D))
-            theta_draw = info_factor.solve_Pt(theta_draw)
-            theta_draw = theta_draw.flatten()
-            theta_draw += theta_hat
-            #
-            theta_prop = theta_block.copy()
-            theta_prop[subset] = theta_draw
-
-            # Check for overflow issues
-            if np.max(theta_prop) >= np.log(np.finfo(np.float).max)/2.:
-                # Always reject for these cases
-                accept = 0
-                ret_val[:end-start] = theta_block[original]
-
-                # Transmit result
-                comm.Send(ret_val, dest=MPIROOT, tag=accept)
-
-                continue
-
-            # Demean and decorrelate previous draw
-            z_prev =  L.T * info_factor.solve_P(theta_subset-theta_hat)
-            z_prev = z_prev.flatten()
-            z_prev *= np.sqrt(D)
-
-            # Compute log target and proposal ratios
-            log_target_ratio = -lib.loglik_convolve(theta=theta_prop,
-                                       y=y[block],
-                                       region_types=region_types[block],
-                                       template=template, mu=mu,
-                                       sigmasq=sigmasq, subset=None,
-                                       theta0=theta_prop, log=True)
-            log_target_ratio -= -lib.loglik_convolve(theta=theta_block,
-                                       y=y[block],
-                                       region_types=region_types[block],
-                                       template=template, mu=mu,
-                                       sigmasq=sigmasq, subset=None,
-                                       theta0=theta_block, log=True)
-
-            log_prop_ratio = -0.5*(prop_df+1)*np.sum(np.log(1. + z**2/prop_df)-
-                                                 np.log(1. + z_prev**2/prop_df))
-
-            # Execute MH step
-            log_accept_prob = log_target_ratio - log_prop_ratio
-            #print block, log_target_ratio, log_prop_ratio, log_accept_prob
-            if np.log(np.random.uniform()) < log_accept_prob:
-                accept = 1
-                ret_val[:end-start] = theta_prop[original]
-            else:
-                accept = 0
-                ret_val[:end-start] = theta_block[original]
-
-            # Transmit result
-            comm.Send(ret_val, dest=MPIROOT, tag=accept)
+            rmh_worker_theta(comm=comm, block_width=block_width,
+                             start=start, y=y, template=template,
+                             theta=theta, mu=mu, sigmasq=sigmasq,
+                             region_types=region_types)
         elif status.Get_tag() == UPDATETAG:
             # Update value of theta for next job within given outer loop
             comm.Recv(theta, source=MPIROOT, tag=MPI.ANY_TAG)
