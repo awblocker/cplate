@@ -555,6 +555,121 @@ def rmh_worker_theta(comm, block_width, start, y, template, theta, mu, sigmasq,
     # Transmit result
     comm.Send(ret_val, dest=MPIROOT, tag=accept)
 
+def rhmc_worker_theta(comm, block_width, start, y, template, theta, mu, sigmasq,
+                      region_types, prop_df=5., eps=0.01, n_steps=100):
+    # Compute needed data properties
+    chrom_length = y.size
+    w = template.size/2 + 1
+    
+    # Calculate subset of data to work on
+    end = min(chrom_length, start + block_width)
+    block = slice(max(start-w, 0), min(end+w, chrom_length))
+    size_block  = block.stop - block.start
+
+    subset = slice(w*(start!=0)+start-block.start,
+                   size_block-w*(end!=chrom_length) - (block.stop-end))
+    size_subset = subset.stop - subset.start
+
+    original = slice(start-block.start, size_block - (block.stop-end))
+
+    theta_block     = theta[block]
+    theta_subset    = theta_block[subset]
+
+    # Setup initial return value
+    ret_val = np.empty(block_width)
+
+#    # Run optimization to obtain conditional posterior mode
+#    theta_hat = lib.deconvolve(lib.loglik_convolve,
+#                               lib.dloglik_convolve,
+#                               y[block], region_types[block], template,
+#                               mu, sigmasq,
+#                               subset=subset, theta0=theta_block,
+#                               log=True,
+#                               messages=0)[0]
+#
+#    # Compute (sparse) conditional observed information
+#    X = sparse.spdiags((np.ones((template.size,size_block)).T *
+#                        template).T, diags=range(-w+1, w),
+#                        m=size_block, n=size_block, format='csr')
+#
+#    info = lib.ddloglik(theta=theta_hat,
+#                        theta0=theta_block,
+#                        X=X, Xt=X, y=y[block],
+#                        mu=mu, sigmasq=sigmasq,
+#                        region_types=region_types[block],
+#                        subset=subset, log=True)
+#    info = info[subset,:]
+#    info = info.tocsc()
+#    info = info[:,subset]
+    
+    # Draw momentum variables
+    p = np.random.randn(size_subset)
+    p_0 = p.copy()
+    
+    # Initialize new draw of theta
+    theta_draw = theta_subset.copy()
+    
+    # Run leapfrog iterations
+    grad = lib.dloglik_convolve(theta=theta_draw, y=y[block],
+                                 region_types=region_types[block],
+                                 template=template, mu=mu, sigmasq=sigmasq,
+                                 theta0=theta_block, subset=subset, log=True)
+    
+    # Start with half step for momentum
+    p -= eps*grad / 2.
+    
+    # Alternate full steps for position and momentum
+    for i in xrange(n_steps):
+        # Full step for position
+        theta_draw += eps*p
+        # Update gradient
+        grad = lib.dloglik_convolve(theta=theta_draw, y=y[block],
+                                     region_types=region_types[block],
+                                     template=template, mu=mu,
+                                     sigmasq=sigmasq, theta0=theta_block, 
+                                     subset=subset, log=True)
+        # Full step for momentum, execept at the end of the trajectory
+        if i<(n_steps - 1): p -= eps*grad
+    
+    # Half step for momentum at the end
+    p -= eps*grad/2.
+    
+    # Reverse momentum at end of trajectory to make the proposal symmetric.
+    p = -p
+    
+    # Construct complete proposal for theta
+    theta_prop = theta_block.copy()
+    theta_prop[subset] = theta_draw    
+    
+    # Compute log target and kinetic energy differences
+    log_target_ratio = -lib.loglik_convolve(theta=theta_prop,
+                               y=y[block],
+                               region_types=region_types[block],
+                               template=template, mu=mu,
+                               sigmasq=sigmasq, subset=None,
+                               theta0=theta_prop, log=True)
+    log_target_ratio -= -lib.loglik_convolve(theta=theta_block,
+                               y=y[block],
+                               region_types=region_types[block],
+                               template=template, mu=mu,
+                               sigmasq=sigmasq, subset=None,
+                               theta0=theta_block, log=True)
+
+    log_kinetic_diff = 0.5*np.sum(p**2 - p_0**2)
+
+    # Execute MH step
+    log_accept_prob = log_target_ratio - log_kinetic_diff
+    #print block, log_target_ratio, log_kinetic_diff, log_accept_prob
+    if np.log(np.random.uniform()) < log_accept_prob:
+        accept = 1
+        ret_val[:end-start] = theta_prop[original]
+    else:
+        accept = 0
+        ret_val[:end-start] = theta_block[original]
+
+    # Transmit result
+    comm.Send(ret_val, dest=MPIROOT, tag=accept)
+
 def worker(comm, rank, n_proc, data, init, cfg):
     '''
     Worker-node process for parallel MCMC sampler.
@@ -618,10 +733,10 @@ def worker(comm, rank, n_proc, data, init, cfg):
             comm.Bcast(mu, root=MPIROOT)
             comm.Bcast(sigmasq, root=MPIROOT)
         elif status.Get_tag() == WORKTAG:
-            rmh_worker_theta(comm=comm, block_width=block_width,
-                             start=start, y=y, template=template,
-                             theta=theta, mu=mu, sigmasq=sigmasq,
-                             region_types=region_types)
+            rhmc_worker_theta(comm=comm, block_width=block_width,
+                              start=start, y=y, template=template,
+                              theta=theta, mu=mu, sigmasq=sigmasq,
+                              region_types=region_types)
         elif status.Get_tag() == UPDATETAG:
             # Update value of theta for next job within given outer loop
             comm.Recv(theta, source=MPIROOT, tag=MPI.ANY_TAG)
