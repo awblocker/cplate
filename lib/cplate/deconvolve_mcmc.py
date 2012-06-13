@@ -213,7 +213,6 @@ def initialize(data, cfg, rank=None, null=False):
             'sigmasq' : sigmasq}
     return init
 
-
 def master(comm, n_proc, data, init, cfg):
     '''
     Master node process for parallel MCMC. Coordinates draws, handles all
@@ -316,10 +315,6 @@ def master(comm, n_proc, data, init, cfg):
 
     assigned = np.zeros(n_workers, dtype=np.int)
 
-    # Initialize acceptance statistics
-    accept_stats = np.zeros(chrom_length, dtype=np.int)
-    accept_stats_tm1 = np.zeros_like(accept_stats)
-
     # Setup blocks for worker nodes
     # This is the scan algorithm with a 2-iteration cycle.
     # It is designed to ensure consistent sampling coverage of the chromosome.
@@ -328,9 +323,20 @@ def master(comm, n_proc, data, init, cfg):
                            dtype=np.int)]
     start_vec = np.concatenate(start_vec)
     
+    # Initialize acceptance statistics
+    n_prop_per_iteration = np.zeros(chrom_length, dtype=np.int)
+    for start in start_vec:
+        end = min(start + block_width, chrom_length)
+        n_prop_per_iteration[start:end] += 1
+
+    n_accepted = np.zeros(chrom_length, dtype=np.int)
+    n_accepted_tm1 = np.zeros_like(n_accepted)
+    
     if verbose > 1:
         # Print starting values for parameters
         print mu[0], sigmasq[0]
+        # Initialize rough block identifiers
+        block = np.arange(chrom_length, dtype=np.int) / block_width
     
     for t in xrange(1, max_iter):
         # (1) Distributed draw of theta | mu, sigmasq, y on workers.
@@ -375,7 +381,7 @@ def master(comm, n_proc, data, init, cfg):
             worker = status.Get_source()
             start = assigned[worker-1]
             end = min(start+block_width, chrom_length)
-            accept_stats[start:end] += status.Get_tag()
+            n_accepted[start:end] += status.Get_tag()
             theta[t,start:end] = ret_val[:end-start]
 
             # If all jobs are not complete, update theta on the just-finished
@@ -413,13 +419,13 @@ def master(comm, n_proc, data, init, cfg):
             if timing: print >> sys.stderr, ( "%d:\tIteration time: %s" %
                                               (t, time.clock() - tme) )
             if verbose > 1:
-                accept_diff = accept_stats-accept_stats_tm1
-                print np.mean(accept_diff)
-                block = np.arange(chrom_length, dtype=np.int) / block_width
-                print np.bincount(block, weights=accept_diff)/np.bincount(block)
+                prop_accepted = (n_accepted-n_accepted_tm1)/n_prop_per_iteration
+                print np.mean(prop_accepted)
+                print (np.bincount(block, weights=prop_accepted) /
+                       np.bincount(block))
                 print mu[t]
                 print sigmasq[t]
-                accept_stats_tm1 = accept_stats.copy()
+                n_accepted_tm1 = n_accepted.copy()
 
         if timing:
             tme = time.clock()
@@ -433,7 +439,8 @@ def master(comm, n_proc, data, init, cfg):
     out = {'theta' : theta,
            'mu' : mu,
            'sigmasq' : sigmasq,
-           'region_ids' : region_ids}
+           'region_ids' : region_ids,
+           'prop_accepted' : n_accepted/(max_iter - 1.)/n_prop_per_iteration}
     return out
 
 def rmh_worker_theta(comm, block_width, start, y, template, theta, mu, sigmasq,
@@ -556,7 +563,7 @@ def rmh_worker_theta(comm, block_width, start, y, template, theta, mu, sigmasq,
     comm.Send(ret_val, dest=MPIROOT, tag=accept)
 
 def rhmc_worker_theta(comm, block_width, start, y, template, theta, mu, sigmasq,
-                      region_types, prop_df=5., eps=0.01, n_steps=100):
+                      region_types, prop_df=5., eps=0.1, n_steps=100):
     # Compute needed data properties
     chrom_length = y.size
     w = template.size/2 + 1
@@ -856,4 +863,5 @@ def pickle_results(results, cfg, chrom=1, null=False):
     out_path = out_pattern.format(**cfg) % chrom
 
     with contextlib.closing(bz2.BZ2File(out_path, mode='wb')) as f:
-        cPickle.dump(results, f)
+        cPickle.dump(results, f, protocol=-1)
+
