@@ -865,3 +865,14 @@ def pickle_results(results, cfg, chrom=1, null=False):
     with contextlib.closing(bz2.BZ2File(out_path, mode='wb')) as f:
         cPickle.dump(results, f, protocol=-1)
 
+def save_results(results, cfg, chrom=1, null=False):
+    if null:
+        out_pattern = cfg['mcmc_output']['null_out_pattern']
+    else:
+        out_pattern = cfg['mcmc_output']['out_pattern']
+    out_pattern = out_pattern.strip()
+
+    out_path = out_pattern.format(**cfg) % chrom
+
+    np.savez_compressed(out_path, **results)
+
