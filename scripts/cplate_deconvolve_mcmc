@@ -3,11 +3,9 @@
 # Load libraries
 import sys
 import getopt
-import time
 import itertools
 
 import yaml
-import numpy as np
 from mpi4py import MPI
 
 from cplate import deconvolve_mcmc
@@ -107,8 +105,8 @@ def main(argv):
 
             if comm.Get_rank() == deconvolve_mcmc.MPIROOT:
                 # Write compressed pickle output
-                deconvolve_mcmc.pickle_results(results=results, cfg=cfg,
-                                               chrom=chrom, null=null)
+                deconvolve_mcmc.save_results(results=results, cfg=cfg,
+                                             chrom=chrom, null=null)
 
 if __name__ == '__main__':
     main(sys.argv[1:])
