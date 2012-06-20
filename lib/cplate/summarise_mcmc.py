@@ -258,9 +258,9 @@ def summarise(cfg, chrom=1, null=False):
 
     # Extract results to scratch directory
     if null:
-        pattern_results = cfg['mcmc_output']['out_pattern']
-    else:
         pattern_results = cfg['mcmc_output']['null_out_pattern']
+    else:
+        pattern_results = cfg['mcmc_output']['out_pattern']
     pattern_results = pattern_results.strip()
     path_results = pattern_results.format(**cfg) % chrom
 
@@ -324,9 +324,9 @@ def summarise(cfg, chrom=1, null=False):
 
     # Provide nicely-formatted table of output for analyses and plotting
     if null:
-        pattern_summaries = cfg['mcmc_output']['summary_pattern']
-    else:
         pattern_summaries = cfg['mcmc_output']['null_summary_pattern']
+    else:
+        pattern_summaries = cfg['mcmc_output']['summary_pattern']
     pattern_summaries = pattern_summaries.strip()
     path_summaries = pattern_summaries.format(**cfg) % chrom
 
