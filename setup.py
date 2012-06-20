@@ -12,8 +12,8 @@ REQUIRES = ['numpy(>=1.6)','scipy(>=0.9)', 'yaml', 'mpi4py']
 
 PACKAGE_DIR = {'': 'lib'}
 PACKAGES = ['cplate']
-SCRIPTS = ['scripts/cplate_deconvolve_em', 'scripts/cplate_deconvolve_mcmc', 
-           'scripts/cplate_detect_em']
+SCRIPTS = ('deconvolve_em', 'deconvolve_mcmc', 'detect_em', 'summarise_mcmc')
+SCRIPTS = ['scripts/cplate_' + script for script in SCRIPTS]
 
 setup(name=NAME,
       url=URL,
