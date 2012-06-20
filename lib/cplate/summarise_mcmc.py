@@ -244,6 +244,7 @@ def summarise(cfg, chrom=1, null=False):
     scratch     = cfg['mcmc_summaries']['path_scratch']
     width_local = cfg['mcmc_summaries']['width_local']
     concentration_pm = cfg['mcmc_summaries']['concentration_pm']
+    p_detect    = cfg['mcmc_summaries']['p_detect']
 
     # Check for existence and writeability of scratch directory
     if os.access(scratch, os.F_OK):
@@ -342,6 +343,26 @@ def summarise(cfg, chrom=1, null=False):
                                          concentration_pm))
     io.write_recarray_to_file(fname=path_summaries, data=summaries,
                               header=True, sep=' ')
+
+    # Run detection, if requested
+    if p_detect is not None and not null:
+        # Find detected positions
+        detected = np.where(p_local_concentration_pm > p_detect)[0]
+
+        # Condense regions
+        detected, n = condense_detections(detected)
+
+        # Write detections to text file
+        pattern_detections = cfg['mcmc_output']['detections_pattern']
+        pattern_detections = pattern_detections.strip()
+        path_detections = pattern_detections.format(**cfg) % chrom
+        
+        detections = np.rec.fromarrays([detected, n],
+                                       names=('pos', 'n'))
+        io.write_recarray_to_file(fname=path_detections,
+                                  data=detections, header=True,
+                                  sep=' ')
+
     # Clean-up scratch directory
     for name in names_npy:
         os.remove(scratch + '/' + name)
