@@ -297,17 +297,14 @@ def summarise(cfg, chrom=1, null=False):
     # Compute local relative occupancy
     window_pm    = np.ones(1 + 2*concentration_pm)
     window_local = np.ones(width_local)
-    local_occupancy_draws = np.apply_along_axis(local_relative_occupancy,
-                                                1,
-                                                theta,
-                                                np.ones(1), window_local)
-    baseline = (1 / np.convolve(np.ones_like(theta[0]), window_local, 'same'))
+    local_occupancy_draws = np.apply_along_axis(local_relative_occupancy, 1,
+                                                theta, np.ones(1), window_local)
+    baseline = (1. / np.convolve(np.ones_like(theta[0]), window_local, 'same'))
     p_local_concentration_exact = np.mean(local_occupancy_draws > baseline, 0)
 
     is_local_concentration_pm = np.apply_along_axis(np.convolve, 1,
-                                                     local_occupancy_draws >
-                                                     baseline,
-                                                     window_pm, 'same')
+                                                    local_occupancy_draws >
+                                                    baseline, window_pm, 'same')
     is_local_concentration_pm = np.minimum(1, is_local_concentration_pm)
     p_local_concentration_pm = np.mean(is_local_concentration_pm, 0)
 
