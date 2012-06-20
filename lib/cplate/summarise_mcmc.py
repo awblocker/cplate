@@ -264,13 +264,23 @@ def summarise(cfg, chrom=1, null=False):
     pattern_results = pattern_results.strip()
     path_results = pattern_results.format(**cfg) % chrom
 
-    with np.load(path_results) as f:
-        f.extractall(scratch)
-        names_npy = f.zip.namelist()
+    f = np.load(path_results)
+    f.zip.extractall(scratch)
+    names_npy = f.zip.namelist()
+    f.close()
 
     # Load results of interest
     theta   = np.load(scratch + '/theta.npy')
     mu      = np.load(scratch + '/mu.npy')
+    
+    # Load region type information
+    with open(cfg['data']['regions_path'].format(**cfg), 'rb') as f:
+        lines_read = 0
+        for line in f:
+            lines_read += 1
+            if lines_read == chrom:
+                region_types = np.fromstring(line.strip(), sep=' ', dtype=int)
+                break
 
     # Remove burnin
     if n_burnin > 0:
@@ -281,7 +291,7 @@ def summarise(cfg, chrom=1, null=False):
     n_eff = effective_sample_sizes(theta=theta)
 
     # Estimate P(theta_i > mu)
-    p_theta_gt_mu = np.mean( theta - mu.flatten() > 0, 1)
+    p_theta_gt_mu = np.mean(theta - mu[:,region_types] > 0, 0)
 
     # Compute local relative occupancy
     window_pm    = np.ones(1 + 2*concentration_pm)
