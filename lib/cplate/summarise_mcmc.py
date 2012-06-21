@@ -177,13 +177,23 @@ def posterior_stderrors(**kwargs):
     else:
         return stderrors[kwargs.keys()[0]]
 
-
-def find_maxima(x, boundary=True):
+def find_maxima(x, boundary=False):
     '''
-    Finds local maxima in sequence x.
-    Defining local maxima simply by low-high-low triplets.
-    Retains boundary cases as well (high-low at start & low-high at end).
-    Returns a boolean array of the same size as x.
+    Finds local maxima in sequence x, defining local maxima simply by
+    low-high-low triplets.
+    
+    Parameters
+    ----------
+    - x : ndarray
+        Sequence of values to search for local maxima
+    - boundary : bool
+        If True, include boundaries as possible maxima
+
+    Returns
+    -------
+    - maxima : ndarray
+        Boolean array of the same size as x with local maxima True
+    
     '''
     # Intialization
     up, down    = np.ones((2, x.size))
@@ -199,12 +209,45 @@ def find_maxima(x, boundary=True):
     maxima  = up*down
     return maxima
 
-def local_relative_occupancy(theta_t, window_small, window_local):
-    b_t = np.exp(theta_t)
+def local_relative_occupancy(b_t, window_small, window_local):
+    '''
+    Compute local relative occupancy from vector of coefficients.
+
+    Parameters
+    ----------
+    - b_t : ndarray
+        Array of coefficients from a single draw
+    - window_small : ndarray
+        Array containing small window for local relative occupancy
+    - window_local : ndarray
+        Array containing larger window for local relative occupancy
+
+    Returns
+    -------
+    - l : ndarray
+        Array of same size as b_t containing local relative occupancies
+
+    '''
     return (np.convolve(b_t, window_small, 'same') /
             np.convolve(b_t, window_local, 'same'))
 
 def condense_detections(detections):
+    '''
+    Condense adjacent detections (from smoothed local occupancy) into centers
+    and number of adjacent detections.
+
+    Parameters
+    ----------
+    - detections : ndarray
+        1d array of detected positions
+
+    Returns
+    -------
+    - detections : ndarray
+        1d array of detected centers
+    - n : integer ndarray
+        Number of detections per center
+    '''
     x = detections.copy() + 0.
     n = np.ones_like(x)
     
@@ -217,13 +260,6 @@ def condense_detections(detections):
 
     return x, n
 
-def spacing(theta_t, window_local, local_concentration=10.):
-    local_rel_occupancy = np.exp(theta_t) / np.convolve(np.exp(theta_t),
-                                                        window_local,
-                                                        mode='same')
-    calls = np.where(local_rel_occupancy >
-                     1./np.sum(window_local)*local_concentration)[0]
-    return np.diff(calls)
 
 def summarise(cfg, chrom=1, null=False):
     '''
@@ -231,13 +267,18 @@ def summarise(cfg, chrom=1, null=False):
     
     Parameters
     ----------
-        - cfg : dictionary
-            Dictionary of parameters containing at least those relevant MCMC
-            draw and summary output paths and parameters for summarization.
-        - chrom : int
-            Index of chromosome to analyze
-        - null : bool
-            Summarise null results?
+    - cfg : dictionary
+        Dictionary of parameters containing at least those relevant MCMC
+        draw and summary output paths and parameters for summarization.
+    - chrom : int
+        Index of chromosome to analyze
+    - null : bool
+        Summarise null results?
+
+    Returns
+    -------
+    - status : int
+        Integer status for summarisation. 0 for success, > 0 for failure.
     '''
     # Reference useful information in local namespace
     n_burnin    = cfg['mcmc_params']['n_burnin']
@@ -296,8 +337,11 @@ def summarise(cfg, chrom=1, null=False):
 
     # Compute local relative occupancy
     window_local = np.ones(width_local)
-    local_occupancy_draws = np.apply_along_axis(local_relative_occupancy, 1,
-                                                theta, np.ones(1), window_local)
+    local_occupancy_draws = np.empty_like(theta)
+    for t in xrange(theta.shape[0]):
+        local_occupancy_draws[t] = local_relative_occupancy(np.exp(theta[t]),
+                                                            np.ones(1),
+                                                            window_local)
 
     # Posterior probability of single-basepair concentrations
     baseline = (1. / np.convolve(np.ones_like(theta[0]), window_local, 'same'))
@@ -305,9 +349,11 @@ def summarise(cfg, chrom=1, null=False):
 
     # Posterior probability of +/-(concentration_pm) concentrations
     window_pm    = np.ones(1 + 2*concentration_pm)
-    local_occupancy_smoothed = np.apply_along_axis(local_relative_occupancy, 1,
-                                                   theta, window_pm,
-                                                   window_local)
+    local_occupancy_smoothed = np.empty_like(theta)
+    for t in xrange(theta.shape[0]):
+        local_occupancy_smoothed[t] = local_relative_occupancy(np.exp(theta[t]),
+                                                               window_pm,
+                                                               window_local)
     baseline_smoothed = (np.convolve(np.ones_like(theta[0]), window_pm, 'same')
                          / np.convolve(np.ones_like(theta[0]), window_local,
                                        'same'))
