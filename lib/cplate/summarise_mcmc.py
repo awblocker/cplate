@@ -14,10 +14,10 @@ def effective_sample_sizes(**kwargs):
     Estimate effective sample size for each input using AR(1) approximation.
     Each input should be a 1- or 2-dimensional ndarray. 2-dimensional inputs
     should have one variable per column, one iteration per row.
-    
+
     Parameters
     ----------
-    
+
     Returns
     -------
         - If only one array of draws is provided, a single array containing the
@@ -25,30 +25,30 @@ def effective_sample_sizes(**kwargs):
         - If multiple arrays are provided, a dictionary with keys identical to
           those provided as parameters and one array per input containing
           effective sample size(s).
-    
+
     '''
     # Ensure that at least one input was provided
     if len(kwargs) < 1:
         return ValueError('Must provide at least one array of draws.')
-    
+
     # Allocate empty dictionary for results
     ess = {}
-    
+
     # Iterate over arrays of draws
     for var, draws in kwargs.iteritems():
         # Add dimension to 1d arrays
         if len(np.shape(draws)) < 2:
             draws = draws[:,np.newaxis]
-        
+
         # Demean the draws
         draws = draws - draws.mean(axis=0)
-        
+
         # Compute lag-1 autocorrelation by column
         acf = np.mean(draws[1:]*draws[:-1], axis=0) / np.var(draws, axis=0)
-    
+
         # Compute ess from ACF
         ess[var] = np.shape(draws)[0]*(1.-acf)/(1.+acf)
-    
+
     if len(kwargs) > 1:
         return ess
     else:
@@ -59,12 +59,12 @@ def posterior_means(**kwargs):
     Estimate posterior means from inputs.
     Each input should be a 1- or 2-dimensional ndarray. 2-dimensional inputs
     should have one variable per column, one iteration per row.
-    
+
     Parameters
     ----------
         - **kwargs
             Names and arrays of MCMC draws.
-    
+
     Returns
     -------
         - If only one array of draws is provided, a single array containing the
@@ -72,24 +72,24 @@ def posterior_means(**kwargs):
         - If multiple arrays are provided, a dictionary with keys identical to
           those provided as parameters and one array per input containing
           posterior mean estimate(s).
-    
+
     '''
     # Ensure that at least one input was provided
     if len(kwargs) < 1:
         return ValueError('Must provide at least one array of draws.')
-    
+
     # Allocate empty dictionary for results
     means = {}
-    
+
     # Iterate over arrays of draws
     for var, draws in kwargs.iteritems():
         # Add dimension to 1d arrays
         if len(np.shape(draws)) < 2:
             draws = draws[:,np.newaxis]
-        
+
         # Estimate posterior means
         means[var] = np.mean(draws, 0)
-    
+
     if len(kwargs) > 1:
         return means
     else:
@@ -100,12 +100,12 @@ def posterior_variances(**kwargs):
     Estimate posterior variances from inputs.
     Each input should be a 1- or 2-dimensional ndarray. 2-dimensional inputs
     should have one variable per column, one iteration per row.
-    
+
     Parameters
     ----------
         - **kwargs
             Names and arrays of MCMC draws.
-    
+
     Returns
     -------
         - If only one array of draws is provided, a single array containing the
@@ -113,24 +113,24 @@ def posterior_variances(**kwargs):
         - If multiple arrays are provided, a dictionary with keys identical to
           those provided as parameters and one array per input containing
           posterior variance estimate(s).
-    
+
     '''
     # Ensure that at least one input was provided
     if len(kwargs) < 1:
         return ValueError('Must provide at least one array of draws.')
-    
+
     # Allocate empty dictionary for results
     variances = {}
-    
+
     # Iterate over arrays of draws
     for var, draws in kwargs.iteritems():
         # Add dimension to 1d arrays
         if len(np.shape(draws)) < 2:
             draws = draws[:,np.newaxis]
-        
+
         # Estimate posterior means
         variances[var] = np.var(draws, 0)
-    
+
     if len(kwargs) > 1:
         return variances
     else:
@@ -141,12 +141,12 @@ def posterior_stderrors(**kwargs):
     Estimate posterior standard errors from inputs.
     Each input should be a 1- or 2-dimensional ndarray. 2-dimensional inputs
     should have one variable per column, one iteration per row.
-    
+
     Parameters
     ----------
         - **kwargs
             Names and arrays of MCMC draws.
-    
+
     Returns
     -------
         - If only one array of draws is provided, a single array containing the
@@ -154,24 +154,24 @@ def posterior_stderrors(**kwargs):
         - If multiple arrays are provided, a dictionary with keys identical to
           those provided as parameters and one array per input containing
           posterior standard error estimate(s).
-    
+
     '''
     # Ensure that at least one input was provided
     if len(kwargs) < 1:
         return ValueError('Must provide at least one array of draws.')
-    
+
     # Allocate empty dictionary for results
     stderrors = {}
-    
+
     # Iterate over arrays of draws
     for var, draws in kwargs.iteritems():
         # Add dimension to 1d arrays
         if len(np.shape(draws)) < 2:
             draws = draws[:,np.newaxis]
-        
+
         # Estimate posterior means
         stderrors[var] = np.std(draws, 0)
-    
+
     if len(kwargs) > 1:
         return stderrors
     else:
@@ -181,7 +181,7 @@ def find_maxima(x, boundary=False):
     '''
     Finds local maxima in sequence x, defining local maxima simply by
     low-high-low triplets.
-    
+
     Parameters
     ----------
     - x : ndarray
@@ -193,14 +193,14 @@ def find_maxima(x, boundary=False):
     -------
     - maxima : ndarray
         Boolean array of the same size as x with local maxima True
-    
+
     '''
     # Intialization
     up, down    = np.ones((2, x.size))
     # Central cases
     up[1:-1]    = (x[1:-1]>x[:-2])
     down[1:-1]  = (x[2:]<x[1:-1])
-    
+
     if boundary:
         # Boundary cases
         down[0]     = (x[1]<x[0])
@@ -250,7 +250,7 @@ def condense_detections(detections):
     '''
     x = detections.copy() + 0.
     n = np.ones_like(x)
-    
+
     while np.any(np.diff(x) < 2):
         first = np.min(np.where(np.diff(x)<2)[0])
         x *= n
@@ -260,11 +260,105 @@ def condense_detections(detections):
 
     return x, n
 
+def greedy_maxima_search(x, min_spacing=100, verbose=0):
+    '''
+    Greedily search for local maxima in sequence subject to minimum spacing
+    constraint.
+
+    Parameters
+    ----------
+    - x : ndarray
+        1d sequence of values to search for local maxima
+    - min_spacing : int
+        Minimum spacing of positions. Greedy search continues until this
+        constraint is met.
+    - verbose : int
+        Level of verbosity in output
+
+    Returns
+    -------
+    - out : ndarray
+        Integer array of same shape as x containing ones at positions found in
+        greedy search and zeros everywhere else.
+    '''
+    positions       = find_maxima(x)
+
+    # Get spacing
+    spacing         = np.diff(positions)
+
+    # Check for bad overlaps
+    while spacing.size > 0 and spacing.min() < min_spacing:
+        # Save positions from previous iterations
+        positions_last = positions.copy()
+
+        # Find bad positions
+        bad = np.where(spacing < min_spacing)[0]
+
+        # Find first bad position
+        first_bad    = np.min(bad)
+
+        # Find which positions overlap with given position
+
+        # First, get where overlaps below threshold are located
+        good    = np.where(spacing >= min_spacing)[0]
+
+        # Get number of positions from top bad one to good ones
+        dist    = first_bad - good
+
+        # Find limits of bad cluster
+        if np.any(dist<0):
+            last_in_cluster   = good[dist<0][np.argmax(dist[dist<0])]
+            last_in_cluster   = min(last_in_cluster+1, spacing.size+1)
+        else:
+            last_in_cluster   = spacing.size+1
+
+        if np.any(dist>0):
+            first_in_cluster  = good[dist>0][np.argmin(dist[dist>0])]
+            first_in_cluster  = max(0,first_in_cluster+1)
+        else:
+            first_in_cluster  = 0
+
+        # Check coefficients of positions in cluster for maximum
+        top_in_cluster    = np.argmax(x[positions[first_in_cluster:
+                                                  last_in_cluster]])
+        top_in_cluster    = first_in_cluster + top_in_cluster
+
+        # Handle non-uniqueness
+        top_in_cluster    = np.min(top_in_cluster)
+
+        # Eliminate bad neighbors from positions
+        keep    = np.ones(positions.size, dtype=bool)
+
+        if top_in_cluster > 0:
+            space = (positions[top_in_cluster] - positions[top_in_cluster-1])
+            if space < min_spacing:
+                keep[top_in_cluster-1] = False
+        #
+        if top_in_cluster < positions.size-1:
+            space = (positions[top_in_cluster+1] - positions[top_in_cluster])
+            if space < min_spacing:
+                keep[top_in_cluster+1] = False
+        #
+        positions       = positions[keep]
+
+        if positions.size == positions_last.size:
+            print >> sys.stderr, positions[first_in_cluster:last_in_cluster]
+            print >> sys.stderr, spacing[first_in_cluster:last_in_cluster-1]
+            print >> sys.stderr, first_in_cluster, last_in_cluster
+            print >> sys.stderr, top_in_cluster
+            break
+
+        # Update spacing & overlap
+        spacing         = np.diff(positions)
+
+    out = np.zeros(np.size(x), dtype=np.int)
+    out[positions] = 1
+    return out
 
 def summarise(cfg, chrom=1, null=False):
     '''
     Coordinate summarisation of MCMC results.
-    
+
     Parameters
     ----------
     - cfg : dictionary
@@ -314,7 +408,7 @@ def summarise(cfg, chrom=1, null=False):
     # Load results of interest
     theta   = np.load(scratch + '/theta.npy')
     mu      = np.load(scratch + '/mu.npy')
-    
+
     # Load region type information
     with open(cfg['data']['regions_path'].format(**cfg), 'rb') as f:
         lines_read = 0
@@ -405,7 +499,7 @@ def summarise(cfg, chrom=1, null=False):
         pattern_detections = cfg['mcmc_output']['detections_pattern']
         pattern_detections = pattern_detections.strip()
         path_detections = pattern_detections.format(**cfg) % chrom
-        
+
         detections = np.rec.fromarrays([detected, n],
                                        names=('pos', 'n'))
         io.write_recarray_to_file(fname=path_detections,
@@ -415,6 +509,6 @@ def summarise(cfg, chrom=1, null=False):
     # Clean-up scratch directory
     for name in names_npy:
         os.remove(scratch + '/' + name)
- 
+
     return 0
 
