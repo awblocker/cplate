@@ -295,18 +295,24 @@ def summarise(cfg, chrom=1, null=False):
     p_theta_gt_mu = np.mean(theta - mu[:,region_types] > 0, 0)
 
     # Compute local relative occupancy
-    window_pm    = np.ones(1 + 2*concentration_pm)
     window_local = np.ones(width_local)
     local_occupancy_draws = np.apply_along_axis(local_relative_occupancy, 1,
                                                 theta, np.ones(1), window_local)
+
+    # Posterior probability of single-basepair concentrations
     baseline = (1. / np.convolve(np.ones_like(theta[0]), window_local, 'same'))
     p_local_concentration_exact = np.mean(local_occupancy_draws > baseline, 0)
 
-    is_local_concentration_pm = np.apply_along_axis(np.convolve, 1,
-                                                    local_occupancy_draws >
-                                                    baseline, window_pm, 'same')
-    is_local_concentration_pm = np.minimum(1, is_local_concentration_pm)
-    p_local_concentration_pm = np.mean(is_local_concentration_pm, 0)
+    # Posterior probability of +/-(concentration_pm) concentrations
+    window_pm    = np.ones(1 + 2*concentration_pm)
+    local_occupancy_smoothed = np.apply_along_axis(local_relative_occupancy, 1,
+                                                   theta, window_pm,
+                                                   window_local)
+    baseline_smoothed = (np.convolve(np.ones_like(theta[0]), window_pm, 'same')
+                         / np.convolve(np.ones_like(theta[0]), window_local,
+                                       'same'))
+    p_local_concentration_pm = np.mean(local_occupancy_smoothed >
+                                       baseline_smoothed, 0)
 
     # Compute posterior means
     theta_postmean = np.mean(theta, 0)
