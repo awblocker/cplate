@@ -196,7 +196,7 @@ def find_maxima(x, boundary=False):
 
     '''
     # Intialization
-    up, down    = np.ones((2, x.size))
+    up, down    = np.ones((2, x.size), dtype=int)
     # Central cases
     up[1:-1]    = (x[1:-1]>x[:-2])
     down[1:-1]  = (x[2:]<x[1:-1])
