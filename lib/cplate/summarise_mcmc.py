@@ -281,7 +281,7 @@ def greedy_maxima_search(x, min_spacing=100, verbose=0):
         Integer array of same shape as x containing ones at positions found in
         greedy search and zeros everywhere else.
     '''
-    positions       = find_maxima(x)
+    positions       = np.where(find_maxima(x))[0]
 
     # Get spacing
     spacing         = np.diff(positions)
@@ -333,22 +333,23 @@ def greedy_maxima_search(x, min_spacing=100, verbose=0):
             space = (positions[top_in_cluster] - positions[top_in_cluster-1])
             if space < min_spacing:
                 keep[top_in_cluster-1] = False
-        #
+
         if top_in_cluster < positions.size-1:
             space = (positions[top_in_cluster+1] - positions[top_in_cluster])
             if space < min_spacing:
                 keep[top_in_cluster+1] = False
-        #
+
         positions       = positions[keep]
 
         if positions.size == positions_last.size:
-            print >> sys.stderr, positions[first_in_cluster:last_in_cluster]
-            print >> sys.stderr, spacing[first_in_cluster:last_in_cluster-1]
-            print >> sys.stderr, first_in_cluster, last_in_cluster
-            print >> sys.stderr, top_in_cluster
+            print >> sys.stderr, 'Error --- greedy search is stuck'
+            print >> sys.stderr, positions, spacing
             break
 
-        # Update spacing & overlap
+        if verbose:
+            print >> sys.stderr, positions, spacing
+
+        # Update spacing
         spacing         = np.diff(positions)
 
     out = np.zeros(np.size(x), dtype=np.int)
