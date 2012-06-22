@@ -260,7 +260,7 @@ def condense_detections(detections):
 
     return x, n
 
-def greedy_maxima_search(x, min_spacing=100, verbose=0):
+def greedy_maxima_search(x, min_spacing=100, remove_boundary=1, verbose=0):
     '''
     Greedily search for local maxima in sequence subject to minimum spacing
     constraint.
@@ -272,6 +272,8 @@ def greedy_maxima_search(x, min_spacing=100, verbose=0):
     - min_spacing : int
         Minimum spacing of positions. Greedy search continues until this
         constraint is met.
+    - remove_boundary : int
+        Length of region to exclude at each end of the sequence. 
     - verbose : int
         Level of verbosity in output
 
@@ -281,7 +283,14 @@ def greedy_maxima_search(x, min_spacing=100, verbose=0):
         Integer array of same shape as x containing ones at positions found in
         greedy search and zeros everywhere else.
     '''
+    # Find local maxima in sequence; need indices of maxima, not binary
+    # indicators
     positions       = np.where(find_maxima(x))[0]
+
+    if remove_boundary > 0:
+        # Exclude boundary positions
+        positions = positions[positions>=remove_boundary]
+        positions = positions[positions<x.size-remove_boundary]
 
     # Get spacing
     spacing         = np.diff(positions)
