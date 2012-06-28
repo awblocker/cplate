@@ -66,7 +66,7 @@ def dloglik(theta, y, region_types, X, Xt, subset, theta0,
     #
     u = logb - mu[region_types]
     #
-    grad = Xt * ( omega*(lam-y)/lam )
+    grad = Xt * omega*(1.-y/lam)
     grad += u/sigmasq[region_types]/b
     if log: grad *= b
     #
@@ -84,7 +84,7 @@ def dloglik_convolve(theta, y, region_types, template, subset, theta0,
     
     u = logb - mu[region_types]
     
-    grad = omega * np.convolve((lam-y)/lam, template, mode='same')
+    grad = omega * np.convolve(1.-y/lam, template, mode='same')
     grad += u/sigmasq[region_types]/b
     if log: grad *= b
     #
