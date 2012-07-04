@@ -1,3 +1,4 @@
+import gc
 import os
 import sys
 
@@ -416,7 +417,7 @@ def summarise(cfg, chrom=1, null=False):
     f.close()
 
     # Load results of interest
-    theta   = np.load(scratch + '/theta.npy')
+    theta   = np.load(scratch + '/theta.npy', mmap_mode='r')
     mu      = np.load(scratch + '/mu.npy')
 
     # Load region type information
@@ -451,6 +452,10 @@ def summarise(cfg, chrom=1, null=False):
     baseline = (1. / np.convolve(np.ones_like(theta[0]), window_local, 'same'))
     p_local_concentration_exact = np.mean(local_occupancy_draws > baseline, 0)
 
+    # Clean-up
+    del local_occupancy_draws
+    gc.collect()
+
     # Posterior probability of +/-(concentration_pm) concentrations
     window_pm    = np.ones(1 + 2*concentration_pm)
     local_occupancy_smoothed = np.empty_like(theta)
@@ -463,6 +468,10 @@ def summarise(cfg, chrom=1, null=False):
                                        'same'))
     p_local_concentration_pm = np.mean(local_occupancy_smoothed >
                                        baseline_smoothed, 0)
+
+    # Clean-up
+    del local_occupancy_smoothed
+    gc.collect()
 
     # Compute posterior means
     theta_postmean = np.mean(theta, 0)
