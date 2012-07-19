@@ -478,23 +478,28 @@ def summarise(cfg, chrom=1, null=False):
     # Clean-up
     gc.collect()
     
-    # Posterior probabilities of global concentrations
+    # Posterior quantiles for global concentrations
     baseline_global = (np.sum(np.exp(theta), 1) / theta.shape[1]
                         * bp_per_nucleosome)
     #
     q_global_concentration_exact = np.zeros(theta.shape[1], dtype=np.float)
+    mean_global_concentration_exact = np.zeros(theta.shape[1], dtype=np.float)
     q_global_concentration_pm = np.zeros(theta.shape[1], dtype=np.float)
+    mean_global_concentration_pm = np.zeros(theta.shape[1], dtype=np.float)
     for bp in xrange(theta.shape[1]):
         # Single-basepair first; it's the easiest
         prop = np.exp(theta[:,bp])/baseline_global
+        mean_global_concentration_exact[bp] = np.mean(prop)
         q_global_concentration_exact[bp] = stats.mstats.mquantiles(prop,
-                                                                   p_detect)
+                                                                   1.-p_detect)
 
         # Now, +/-(concentration_pm) basepairs
         w = slice(max(0,bp-concentration_pm), min(bp+concentration_pm,
                                                   theta.shape[1]))
         prop = np.sum(np.exp(theta[:,w]), 1)/baseline_global/(w.stop-w.start)
-        q_global_concentration_pm[bp] =  stats.mstats.mquantiles(prop, p_detect)
+        mean_global_concentration_pm[bp] = np.mean(prop)
+        q_global_concentration_pm[bp] =  stats.mstats.mquantiles(prop,
+                                                                 1.-p_detect)
     
     # Compute posterior means
     theta_postmean = np.mean(theta, 0)
@@ -521,7 +526,9 @@ def summarise(cfg, chrom=1, null=False):
                                    p_theta_gt_mu, p_local_concentration_exact,
                                    p_local_concentration_pm,
                                    q_global_concentration_exact,
-                                   q_global_concentration_pm],
+                                   mean_global_concentration_exact,
+                                   q_global_concentration_pm,
+                                   mean_global_concentration_pm],
                                   names=('theta', 'theta_med', 'se_theta', 'b',
                                          'b_med', 'se_b', 'n_eff',
                                          'p_theta_gt_mu',
@@ -529,7 +536,10 @@ def summarise(cfg, chrom=1, null=False):
                                          'p_local_concentration_pm%d' %
                                          concentration_pm,
                                          'q_global_concentration_pm0',
+                                         'mean_global_concentration_pm0',
                                          'q_global_concentration_pm%d' %
+                                         concentration_pm,
+                                         'mean_global_concentration_pm%d' %
                                          concentration_pm,))
     io.write_recarray_to_file(fname=path_summaries, data=summaries,
                               header=True, sep=' ')
