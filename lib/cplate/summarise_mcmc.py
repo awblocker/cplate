@@ -3,6 +3,7 @@ import os
 import sys
 
 import numpy as np
+from scipy import stats
 
 import io
 
@@ -391,6 +392,8 @@ def summarise(cfg, chrom=1, null=False):
     width_local = cfg['mcmc_summaries']['width_local']
     concentration_pm = cfg['mcmc_summaries']['concentration_pm']
     p_detect    = cfg['mcmc_summaries']['p_detect']
+    bp_per_nucleosome = cfg['mcmc_summaries']['bp_per_nucleosome']
+    
 
     # Check for existence and writeability of scratch directory
     if os.access(scratch, os.F_OK):
@@ -440,39 +443,59 @@ def summarise(cfg, chrom=1, null=False):
     # Estimate P(theta_i > mu)
     p_theta_gt_mu = np.mean(theta - mu[:,region_types] > 0, 0)
 
-    # Compute local relative occupancy
+    # Compute probability of single-basepair local concentrations
     window_local = np.ones(width_local)
-    local_occupancy_draws = np.empty_like(theta)
-    for t in xrange(theta.shape[0]):
-        local_occupancy_draws[t] = local_relative_occupancy(np.exp(theta[t]),
-                                                            np.ones(1),
-                                                            window_local)
-
-    # Posterior probability of single-basepair concentrations
     baseline = (1. / np.convolve(np.ones_like(theta[0]), window_local, 'same'))
-    p_local_concentration_exact = np.mean(local_occupancy_draws > baseline, 0)
+    #
+    p_local_concentration_exact = np.zeros(theta.shape[1], dtype=np.float)
+    #
+    for t in xrange(theta.shape[0]):
+        local_occupancy_draw = local_relative_occupancy(np.exp(theta[t]),
+                                                        np.ones(1),
+                                                        window_local)
+        p_local_concentration_exact *= t/(t+1.)
+        p_local_concentration_exact += (local_occupancy_draw > baseline)/(t+1.)
 
     # Clean-up
-    del local_occupancy_draws
     gc.collect()
 
     # Posterior probability of +/-(concentration_pm) concentrations
     window_pm    = np.ones(1 + 2*concentration_pm)
-    local_occupancy_smoothed = np.empty_like(theta)
-    for t in xrange(theta.shape[0]):
-        local_occupancy_smoothed[t] = local_relative_occupancy(np.exp(theta[t]),
-                                                               window_pm,
-                                                               window_local)
     baseline_smoothed = (np.convolve(np.ones_like(theta[0]), window_pm, 'same')
                          / np.convolve(np.ones_like(theta[0]), window_local,
                                        'same'))
-    p_local_concentration_pm = np.mean(local_occupancy_smoothed >
-                                       baseline_smoothed, 0)
+    #
+    p_local_concentration_pm = np.zeros(theta.shape[1], dtype=np.float)
+    #
+    for t in xrange(theta.shape[0]):
+        local_occupancy_smoothed = local_relative_occupancy(np.exp(theta[t]),
+                                                            window_pm,
+                                                            window_local)
+        p_local_concentration_pm *= t/(t+1.)
+        p_local_concentration_pm += ((local_occupancy_smoothed >
+                                      baseline_smoothed)/(t+1.))
 
     # Clean-up
-    del local_occupancy_smoothed
     gc.collect()
+    
+    # Posterior probabilities of global concentrations
+    baseline_global = (np.sum(np.exp(theta), 1) / theta.shape[1]
+                        * bp_per_nucleosome)
+    #
+    q_global_concentration_exact = np.zeros(theta.shape[1], dtype=np.float)
+    q_global_concentration_pm = np.zeros(theta.shape[1], dtype=np.float)
+    for bp in xrange(theta.shape[1]):
+        # Single-basepair first; it's the easiest
+        prop = np.exp(theta[:,bp])/baseline_global
+        q_global_concentration_exact[bp] = stats.mstats.mquantiles(prop,
+                                                                   p_detect)
 
+        # Now, +/-(concentration_pm) basepairs
+        w = slice(max(0,bp-concentration_pm), min(bp+concentration_pm,
+                                                  theta.shape[1]))
+        prop = np.sum(np.exp(theta[:,w]), 1)/baseline_global/(w.stop-w.start)
+        q_global_concentration_pm[bp] =  stats.mstats.mquantiles(prop, p_detect)
+    
     # Compute posterior means
     theta_postmean = np.mean(theta, 0)
     b_postmean = np.mean(np.exp(theta), 0)
@@ -485,7 +508,7 @@ def summarise(cfg, chrom=1, null=False):
     theta_postmed = np.median(theta, 0)
     b_postmed = np.exp(theta_postmed)
 
-    # Provide nicely-formatted table of output for analyses and plotting
+    # Provide nicely-formatted delimited output for analyses and plotting
     if null:
         pattern_summaries = cfg['mcmc_output']['null_summary_pattern']
     else:
@@ -496,13 +519,18 @@ def summarise(cfg, chrom=1, null=False):
     summaries = np.rec.fromarrays([theta_postmean, theta_postmed, theta_se,
                                    b_postmean, b_postmed, b_se, n_eff,
                                    p_theta_gt_mu, p_local_concentration_exact,
-                                   p_local_concentration_pm],
+                                   p_local_concentration_pm,
+                                   q_global_concentration_exact,
+                                   q_global_concentration_pm],
                                   names=('theta', 'theta_med', 'se_theta', 'b',
                                          'b_med', 'se_b', 'n_eff',
                                          'p_theta_gt_mu',
                                          'p_local_concentration_pm0',
                                          'p_local_concentration_pm%d' %
-                                         concentration_pm))
+                                         concentration_pm,
+                                         'q_global_concentration_pm0',
+                                         'q_global_concentration_pm%d' %
+                                         concentration_pm,))
     io.write_recarray_to_file(fname=path_summaries, data=summaries,
                               header=True, sep=' ')
 
