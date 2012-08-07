@@ -19,7 +19,6 @@ MPIROOT     = 0
 STOPTAG     = 0
 SYNCTAG     = 1
 WORKTAG     = 2
-UPDATETAG   = 3
 
 # Interval between M-steps
 INTERVAL    = 4
@@ -269,7 +268,10 @@ def master(comm, n_proc, data, init, cfg):
     region_list  = data['region_list']
     region_sizes = data['region_sizes']
     region_ids   = data['region_ids']
-
+    # Template and derived properties
+    template = data['template']
+    w = template.size/2 + 1
+    
     # Compute needed data properties
     chrom_length = y.size
     n_regions = region_ids.size
@@ -290,6 +292,9 @@ def master(comm, n_proc, data, init, cfg):
         block_width = chrom_length / n_workers
     else:
         block_width = cfg['estimation_params']['block_width']
+
+    # Compute maximum size of theta slices to send
+    theta_buf_size = block_width + 2*w
 
     # Setup prior means
     prior_mean = np.zeros(n_regions)
@@ -322,7 +327,8 @@ def master(comm, n_proc, data, init, cfg):
                  np.arange(block_width/2, chrom_length, block_width,
                            dtype=np.int)]
     start_vec = np.concatenate(start_vec)
-    
+    theta_send_buf = np.empty(theta_buf_size, dtype=np.float)
+
     # Initialize acceptance statistics
     n_prop_per_iteration = np.zeros(chrom_length, dtype=np.int)
     for start in start_vec:
@@ -331,13 +337,13 @@ def master(comm, n_proc, data, init, cfg):
 
     n_accepted = np.zeros(chrom_length, dtype=np.int)
     n_accepted_tm1 = np.zeros_like(n_accepted)
-    
+
     if verbose > 1:
         # Print starting values for parameters
         print mu[0], sigmasq[0]
         # Initialize rough block identifiers
-        block = np.arange(chrom_length, dtype=np.int) / block_width
-    
+        block_ids = np.arange(chrom_length, dtype=np.int) / block_width
+
     for t in xrange(1, max_iter):
         # (1) Distributed draw of theta | mu, sigmasq, y on workers.
 
@@ -348,7 +354,6 @@ def master(comm, n_proc, data, init, cfg):
             comm.Send([np.array(0, dtype=np.int), MPI.INT], dest=k, tag=SYNCTAG)
 
         # Broadcast theta and parameter values to all workers
-        comm.Bcast(theta[t-1], root=MPIROOT)
         comm.Bcast(mu[t-1], root=MPIROOT)
         comm.Bcast(sigmasq[t-1], root=MPIROOT)
 
@@ -364,20 +369,33 @@ def master(comm, n_proc, data, init, cfg):
         np.random.shuffle(start_vec)
 
         # Send first batch of jobs
-        for k in range(1,min(n_workers, start_vec.size)+1):
+        for worker in range(1,min(n_workers, start_vec.size)+1):
+            # Setup block to send
+            end = min(chrom_length, start_vec[n_started] + block_width)
+            block = slice(max(start_vec[n_started] - w, 0),
+                          min(end+w, chrom_length))
+            theta_send_buf[:block.stop-block.start] = theta[t,block]
+            
+            # Tell worker to update slice of theta and execute theta draw
             comm.Send(np.array(start_vec[n_started], dtype=np.int),
-                      dest=k, tag=WORKTAG)
-            assigned[k-1] = start_vec[n_started]
+                      dest=worker, tag=WORKTAG)
+            
+            # Update theta slice on worker node
+            comm.Send(theta_send_buf, dest=worker, tag=MPIROOT)
+
+            # Update job counter and assignment array
+            assigned[worker-1] = start_vec[n_started]
             n_started += 1
 
         # Collect results from workers and dispatch additional jobs until
         # complete
         while n_completed < n_jobs:
-            # Collect any complete results
+            # Collect any completed results
             comm.Recv(ret_val, source=MPI.ANY_SOURCE, tag=MPI.ANY_TAG,
                       status=status)
             n_completed += 1
-
+            
+            # Slot updated slice of theta into proper place
             worker = status.Get_source()
             start = assigned[worker-1]
             end = min(start+block_width, chrom_length)
@@ -387,13 +405,20 @@ def master(comm, n_proc, data, init, cfg):
             # If all jobs are not complete, update theta on the just-finished
             # worker and send another job.
             if n_started < n_jobs:
-                # Update theta on given worker
-                comm.Send(np.array(0, dtype=np.int), dest=worker, tag=UPDATETAG)
-                comm.Send(theta[t], dest=worker, tag=MPIROOT)
+                # Setup block to send
+                end = min(chrom_length, start_vec[n_started] + block_width)
+                block = slice(max(start_vec[n_started] - w, 0),
+                              min(end+w, chrom_length))
+                theta_send_buf[:block.stop-block.start] = theta[t,block]
 
-                # Start next job on worker
+                # Tell worker to update slice of theta and execute theta draw
                 comm.Send(np.array(start_vec[n_started], dtype=np.int),
                           dest=worker, tag=WORKTAG)
+                
+                # Update theta slice on worker node
+                comm.Send(theta_send_buf, dest=worker, tag=MPIROOT)
+
+                # Update job counter and assignment array
                 assigned[worker-1] = start_vec[n_started]
                 n_started += 1
 
@@ -421,8 +446,8 @@ def master(comm, n_proc, data, init, cfg):
             if verbose > 1:
                 prop_accepted = (n_accepted-n_accepted_tm1)/n_prop_per_iteration
                 print np.mean(prop_accepted)
-                print (np.bincount(block, weights=prop_accepted) /
-                       np.bincount(block))
+                print (np.bincount(block_ids, weights=prop_accepted) /
+                       np.bincount(block_ids))
                 print mu[t]
                 print sigmasq[t]
                 n_accepted_tm1 = n_accepted.copy()
@@ -448,7 +473,7 @@ def rmh_worker_theta(comm, block_width, start, y, template, theta, mu, sigmasq,
     # Compute needed data properties
     chrom_length = y.size
     w = template.size/2 + 1
-    
+
     # Calculate subset of data to work on
     end = min(chrom_length, start + block_width)
     block = slice(max(start-w, 0), min(end+w, chrom_length))
@@ -567,7 +592,7 @@ def rhmc_worker_theta(comm, block_width, start, y, template, theta, mu, sigmasq,
     # Compute needed data properties
     chrom_length = y.size
     w = template.size/2 + 1
-    
+
     # Calculate subset of data to work on
     end = min(chrom_length, start + block_width)
     block = slice(max(start-w, 0), min(end+w, chrom_length))
@@ -578,8 +603,8 @@ def rhmc_worker_theta(comm, block_width, start, y, template, theta, mu, sigmasq,
     size_subset = subset.stop - subset.start
 
     original = slice(start-block.start, size_block - (block.stop-end))
-
-    theta_block     = theta[block]
+    
+    theta_block     = theta[:size_block]
     theta_subset    = theta_block[subset]
 
     # Setup initial return value
@@ -608,23 +633,23 @@ def rhmc_worker_theta(comm, block_width, start, y, template, theta, mu, sigmasq,
 #    info = info[subset,:]
 #    info = info.tocsc()
 #    info = info[:,subset]
-    
+
     # Draw momentum variables
     p = np.random.randn(size_subset)
     p_0 = p.copy()
-    
+
     # Initialize new draw of theta
     theta_draw = theta_subset.copy()
-    
+
     # Run leapfrog iterations
     grad = lib.dloglik_convolve(theta=theta_draw, y=y[block],
                                  region_types=region_types[block],
                                  template=template, mu=mu, sigmasq=sigmasq,
                                  theta0=theta_block, subset=subset, log=True)
-    
+
     # Start with half step for momentum
     p -= eps*grad / 2.
-    
+
     # Alternate full steps for position and momentum
     for i in xrange(n_steps):
         # Full step for position
@@ -633,34 +658,32 @@ def rhmc_worker_theta(comm, block_width, start, y, template, theta, mu, sigmasq,
         grad = lib.dloglik_convolve(theta=theta_draw, y=y[block],
                                      region_types=region_types[block],
                                      template=template, mu=mu,
-                                     sigmasq=sigmasq, theta0=theta_block, 
+                                     sigmasq=sigmasq, theta0=theta_block,
                                      subset=subset, log=True)
         # Full step for momentum, execept at the end of the trajectory
         if i<(n_steps - 1): p -= eps*grad
-    
+
     # Half step for momentum at the end
     p -= eps*grad/2.
-    
+
     # Reverse momentum at end of trajectory to make the proposal symmetric.
     p = -p
-    
+
     # Construct complete proposal for theta
     theta_prop = theta_block.copy()
-    theta_prop[subset] = theta_draw    
-    
+    theta_prop[subset] = theta_draw
+
     # Compute log target and kinetic energy differences
-    log_target_ratio = -lib.loglik_convolve(theta=theta_prop,
-                               y=y[block],
-                               region_types=region_types[block],
-                               template=template, mu=mu,
-                               sigmasq=sigmasq, subset=None,
-                               theta0=theta_prop, log=True)
-    log_target_ratio -= -lib.loglik_convolve(theta=theta_block,
-                               y=y[block],
-                               region_types=region_types[block],
-                               template=template, mu=mu,
-                               sigmasq=sigmasq, subset=None,
-                               theta0=theta_block, log=True)
+    log_target_ratio = -lib.loglik_convolve(theta=theta_prop, y=y[block],
+                                            region_types=region_types[block],
+                                            template=template, mu=mu,
+                                            sigmasq=sigmasq, subset=None,
+                                            theta0=theta_prop, log=True)
+    log_target_ratio -= -lib.loglik_convolve(theta=theta_block, y=y[block],
+                                             region_types=region_types[block],
+                                             template=template, mu=mu,
+                                             sigmasq=sigmasq, subset=None,
+                                             theta0=theta_block, log=True)
 
     log_kinetic_diff = 0.5*np.sum(p**2 - p_0**2)
 
@@ -704,14 +727,15 @@ def worker(comm, rank, n_proc, data, init, cfg):
     '''
     # Create references to relevant data entries in local namespace
     y           = data['y']
-    template    = data['template']
     region_types = data['region_types']
+    # Template and derived properties
+    template = data['template']
+    w = template.size/2 + 1
 
     # Compute needed data properties
     chrom_length = y.size
 
     # Extract needed initializations for parameters
-    theta   = init['theta']
     mu      = init['mu']
     sigmasq = init['sigmasq']
 
@@ -722,11 +746,17 @@ def worker(comm, rank, n_proc, data, init, cfg):
     else:
         block_width = cfg['estimation_params']['block_width']
 
+    # Compute maximum size of theta slices to send
+    theta_buf_size = block_width + 2*w
+
+    # Restrict theta to needed size
+    theta = np.empty(theta_buf_size, dtype=np.float)
+
     # Prepare to receive tasks
     working = True
     status = MPI.Status()
     start = np.array(0)
-    
+
     while working:
         # Receive task information
         comm.Recv([start, MPI.INT], source=MPIROOT, tag=MPI.ANY_TAG,
@@ -736,17 +766,16 @@ def worker(comm, rank, n_proc, data, init, cfg):
             working = False
         elif status.Get_tag() == SYNCTAG:
             # Synchronize parameters (conditioning information)
-            comm.Bcast(theta, root=MPIROOT)
             comm.Bcast(mu, root=MPIROOT)
             comm.Bcast(sigmasq, root=MPIROOT)
         elif status.Get_tag() == WORKTAG:
-            rhmc_worker_theta(comm=comm, block_width=block_width,
-                              start=start, y=y, template=template,
-                              theta=theta, mu=mu, sigmasq=sigmasq,
-                              region_types=region_types)
-        elif status.Get_tag() == UPDATETAG:
             # Update value of theta for next job within given outer loop
             comm.Recv(theta, source=MPIROOT, tag=MPI.ANY_TAG)
+
+            # Execute HMC step, including sending result
+            rhmc_worker_theta(comm=comm, block_width=block_width, start=start,
+                              y=y, template=template, theta=theta, mu=mu,
+                              sigmasq=sigmasq, region_types=region_types)
 
 def run(cfg, comm=None, chrom=1, null=False):
     '''
