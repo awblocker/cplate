@@ -10,6 +10,7 @@ from scikits.sparse import cholmod
 from mpi4py import MPI
 
 import lib_deconvolve_em as lib
+import libio
 
 # Set constants
 
@@ -903,5 +904,7 @@ def save_results(results, cfg, chrom=1, null=False):
 
     out_path = out_pattern.format(**cfg) % chrom
 
-    np.savez_compressed(out_path, **results)
+    libio.write_arrays_to_tarball(fname=out_path, compress='bz2',
+                                  scratch=cfg['mcmc_params']['path_scratch'],
+                                  **results)
 

@@ -1,11 +1,12 @@
 import gc
 import os
 import sys
+import tarfile
 
 import numpy as np
 from scipy import stats
 
-import io
+import libio
 
 #==============================================================================
 # General-purpose MCMC diagnostic and summarization functions
@@ -394,7 +395,6 @@ def summarise(cfg, chrom=1, null=False):
     p_detect    = cfg['mcmc_summaries']['p_detect']
     bp_per_nucleosome = cfg['mcmc_summaries']['bp_per_nucleosome']
     
-
     # Check for existence and writeability of scratch directory
     if os.access(scratch, os.F_OK):
         # It exists, check for read-write
@@ -413,11 +413,11 @@ def summarise(cfg, chrom=1, null=False):
         pattern_results = cfg['mcmc_output']['out_pattern']
     pattern_results = pattern_results.strip()
     path_results = pattern_results.format(**cfg) % chrom
-
-    f = np.load(path_results)
-    f.zip.extractall(scratch)
-    names_npy = f.zip.namelist()
-    f.close()
+    
+    archive = tarfile.open(name=path_results, mode='r:bz2')
+    archive.extractall(path=scratch)
+    names_npy = archive.getnames()
+    archive.close()
 
     # Load results of interest
     theta   = np.load(scratch + '/theta.npy', mmap_mode='r')
@@ -541,8 +541,8 @@ def summarise(cfg, chrom=1, null=False):
                                          concentration_pm,
                                          'mean_global_concentration_pm%d' %
                                          concentration_pm,))
-    io.write_recarray_to_file(fname=path_summaries, data=summaries,
-                              header=True, sep=' ')
+    libio.write_recarray_to_file(fname=path_summaries, data=summaries,
+                                 header=True, sep=' ')
 
     # Run detection, if requested
     if p_detect is not None and not null:
@@ -559,9 +559,8 @@ def summarise(cfg, chrom=1, null=False):
 
         detections = np.rec.fromarrays([detected, n],
                                        names=('pos', 'n'))
-        io.write_recarray_to_file(fname=path_detections,
-                                  data=detections, header=True,
-                                  sep=' ')
+        libio.write_recarray_to_file(fname=path_detections, data=detections,
+                                     header=True, sep=' ')
 
     # Clean-up scratch directory
     for name in names_npy:
