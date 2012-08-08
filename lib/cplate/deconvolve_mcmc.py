@@ -904,7 +904,7 @@ def save_results(results, cfg, chrom=1, null=False):
 
     out_path = out_pattern.format(**cfg) % chrom
 
-    libio.write_arrays_to_tarball(fname=out_path, compress='bz2',
+    libio.write_arrays_to_tarball(fname=out_path, compress='',
                                   scratch=cfg['mcmc_params']['path_scratch'],
                                   **results)
 
