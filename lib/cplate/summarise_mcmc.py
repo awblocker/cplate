@@ -414,7 +414,7 @@ def summarise(cfg, chrom=1, null=False):
     pattern_results = pattern_results.strip()
     path_results = pattern_results.format(**cfg) % chrom
     
-    archive = tarfile.open(name=path_results, mode='r:bz2')
+    archive = tarfile.open(name=path_results, mode='r:*')
     archive.extractall(path=scratch)
     names_npy = archive.getnames()
     archive.close()
