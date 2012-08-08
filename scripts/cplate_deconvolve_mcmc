@@ -3,6 +3,7 @@
 # Load libraries
 import sys
 import getopt
+import gc
 import itertools
 
 import yaml
@@ -107,6 +108,10 @@ def main(argv):
                 # Write compressed pickle output
                 deconvolve_mcmc.save_results(results=results, cfg=cfg,
                                              chrom=chrom, null=null)
+            
+            # Clean-up before next chromosome
+            del results
+            gc.collect()
 
 if __name__ == '__main__':
     main(sys.argv[1:])
