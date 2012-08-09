@@ -6,7 +6,10 @@ import cPickle
 
 import numpy as np
 from scipy import sparse
-from scikits.sparse import cholmod
+try:
+    from scikits.sparse import cholmod
+except:
+    print >> sys.stderr, "cholmod not available"
 from mpi4py import MPI
 
 import lib_deconvolve_em as lib
