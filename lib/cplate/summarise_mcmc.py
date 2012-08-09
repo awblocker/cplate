@@ -423,15 +423,6 @@ def summarise(cfg, chrom=1, null=False):
     theta   = np.load(scratch + '/theta.npy', mmap_mode='r')
     mu      = np.load(scratch + '/mu.npy')
 
-    # Load region type information
-    with open(cfg['data']['regions_path'].format(**cfg), 'rb') as f:
-        lines_read = 0
-        for line in f:
-            lines_read += 1
-            if lines_read == chrom:
-                region_types = np.fromstring(line.strip(), sep=' ', dtype=int)
-                break
-
     # Remove burnin
     if n_burnin > 0:
         mu = mu[n_burnin:]
