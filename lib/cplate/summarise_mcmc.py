@@ -1,10 +1,12 @@
+import collections
 import gc
 import os
 import sys
 import tarfile
 
 import numpy as np
-from scipy import stats
+from numpy.lib import recfunctions as nprf
+from scipy.stats import mstats
 
 import libio
 
@@ -391,9 +393,15 @@ def summarise(cfg, chrom=1, null=False):
     n_burnin    = cfg['mcmc_params']['n_burnin']
     scratch     = cfg['mcmc_summaries']['path_scratch']
     width_local = cfg['mcmc_summaries']['width_local']
-    concentration_pm = cfg['mcmc_summaries']['concentration_pm']
     p_detect    = cfg['mcmc_summaries']['p_detect']
     bp_per_nucleosome = cfg['mcmc_summaries']['bp_per_nucleosome']
+    
+    # Extract window size information (+/-) from config
+    concentration_pm = cfg['mcmc_summaries']['concentration_pm']
+    if isinstance(concentration_pm, str):
+        pm_list = [int(s) for s in concentration_pm.split(',')]
+    else:
+        pm_list = [concentration_pm]
     
     # Check for existence and writeability of scratch directory
     if os.access(scratch, os.F_OK):
@@ -431,64 +439,59 @@ def summarise(cfg, chrom=1, null=False):
     # Compute effective sample sizes
     n_eff = effective_sample_sizes(theta=theta)
 
-    # Compute probability of single-basepair local concentrations
-    window_local = np.ones(width_local)
-    baseline = (1. / np.convolve(np.ones_like(theta[0]), window_local, 'same'))
-    #
-    p_local_concentration_exact = np.zeros(theta.shape[1], dtype=np.float)
-    #
-    for t in xrange(theta.shape[0]):
-        local_occupancy_draw = local_relative_occupancy(np.exp(theta[t]),
-                                                        np.ones(1),
-                                                        window_local)
-        p_local_concentration_exact *= t/(t+1.)
-        p_local_concentration_exact += (local_occupancy_draw > baseline)/(t+1.)
+    # Compute concentration summaries
+    local_concentrations = collections.OrderedDict()
+    global_concentrations = collections.OrderedDict()
 
-    # Clean-up
-    gc.collect()
+    # Iteration over concentration window sizes (+/-)
+    for pm in pm_list:
+        # Estimate probability of +/-(pm) local concentrations
+        window_local = np.ones(width_local)
+        window_pm    = np.ones(1 + 2*pm)
+        baseline = (np.convolve(np.ones_like(theta[0]), window_pm, 'same') /
+                    np.convolve(np.ones_like(theta[0]), window_local, 'same'))
+        
+        # Setup array for estimates by basepair
+        p_local_concentration = np.zeros(theta.shape[1], dtype=np.float)
+        
+        # Iterate over draws
+        for t in xrange(theta.shape[0]):
+            bt = np.exp(theta[t])
+            local_occupancy_smoothed = local_relative_occupancy(bt, window_pm,
+                                                                window_local)
+            p_local_concentration *= t/(t+1.)
+            p_local_concentration += ((local_occupancy_smoothed >
+                                       baseline)/(t+1.))
+        
+        # Store result in dictionary
+        key = 'p_local_concentration_pm%d' % pm
+        local_concentrations[key] = p_local_concentration
 
-    # Posterior probability of +/-(concentration_pm) concentrations
-    window_pm    = np.ones(1 + 2*concentration_pm)
-    baseline_smoothed = (np.convolve(np.ones_like(theta[0]), window_pm,
-                                     'same') /
-                         np.convolve(np.ones_like(theta[0]), window_local,
-                                     'same'))
-    #
-    p_local_concentration_pm = np.zeros(theta.shape[1], dtype=np.float)
-    #
-    for t in xrange(theta.shape[0]):
-        bt = np.exp(theta[t])
-        local_occupancy_smoothed = local_relative_occupancy(bt, window_pm,
-                                                            window_local)
-        p_local_concentration_pm *= t/(t+1.)
-        p_local_concentration_pm += ((local_occupancy_smoothed >
-                                      baseline_smoothed)/(t+1.))
+        # Clean-up
+        del local_occupancy_smoothed
+        gc.collect()
+        
+        # Posterior quantiles for global concentrations
+        baseline_global = (np.sum(np.exp(theta), 1) / theta.shape[1]
+                            * bp_per_nucleosome)
+        
+        # Setup arrays for means and quantiles by basepair
+        q_global_concentration = np.zeros(theta.shape[1], dtype=np.float)
+        mean_global_concentration = np.zeros(theta.shape[1], dtype=np.float)
+        
+        # Iterate over basepairs
+        for bp in xrange(theta.shape[1]):
+            w = slice(max(0,bp-pm), min(bp+pm+1, theta.shape[1]))
+            prop = (np.sum(np.exp(theta[:,w]), 1) / baseline_global /
+                    (w.stop-w.start))
+            mean_global_concentration[bp] = np.mean(prop)
+            q_global_concentration[bp] =  mstats.mquantiles(prop, 1.-p_detect)
 
-    # Clean-up
-    gc.collect()
-    
-    # Posterior quantiles for global concentrations
-    baseline_global = (np.sum(np.exp(theta), 1) / theta.shape[1]
-                        * bp_per_nucleosome)
-    #
-    q_global_concentration_exact = np.zeros(theta.shape[1], dtype=np.float)
-    mean_global_concentration_exact = np.zeros(theta.shape[1], dtype=np.float)
-    q_global_concentration_pm = np.zeros(theta.shape[1], dtype=np.float)
-    mean_global_concentration_pm = np.zeros(theta.shape[1], dtype=np.float)
-    for bp in xrange(theta.shape[1]):
-        # Single-basepair first; it's the easiest
-        prop = np.exp(theta[:,bp])/baseline_global
-        mean_global_concentration_exact[bp] = np.mean(prop)
-        q_global_concentration_exact[bp] = stats.mstats.mquantiles(prop,
-                                                                   1.-p_detect)
-
-        # Now, +/-(concentration_pm) basepairs
-        w = slice(max(0,bp-concentration_pm), min(bp+concentration_pm,
-                                                  theta.shape[1]))
-        prop = np.sum(np.exp(theta[:,w]), 1)/baseline_global/(w.stop-w.start)
-        mean_global_concentration_pm[bp] = np.mean(prop)
-        q_global_concentration_pm[bp] =  stats.mstats.mquantiles(prop,
-                                                                 1.-p_detect)
+        # Store results in dictionaries
+        key = 'q_global_concentration_pm%d' % pm
+        global_concentrations[key] = q_global_concentration
+        key = 'mean_global_concentration_pm%d' % pm
+        global_concentrations[key] = mean_global_concentration
     
     # Compute posterior means
     theta_postmean = np.mean(theta, 0)
@@ -510,45 +513,45 @@ def summarise(cfg, chrom=1, null=False):
     pattern_summaries = pattern_summaries.strip()
     path_summaries = pattern_summaries.format(**cfg) % chrom
 
+    # Build recarray of summaries, starting with coefficients and diagnostics
     summaries = np.rec.fromarrays([theta_postmean, theta_postmed, theta_se,
-                                   b_postmean, b_postmed, b_se, n_eff,
-                                   p_local_concentration_exact,
-                                   p_local_concentration_pm,
-                                   q_global_concentration_exact,
-                                   mean_global_concentration_exact,
-                                   q_global_concentration_pm,
-                                   mean_global_concentration_pm],
+                                   b_postmean, b_postmed, b_se, n_eff],
                                   names=('theta', 'theta_med', 'se_theta', 'b',
-                                         'b_med', 'se_b', 'n_eff',
-                                         'p_local_concentration_pm0',
-                                         'p_local_concentration_pm%d' %
-                                         concentration_pm,
-                                         'q_global_concentration_pm0',
-                                         'mean_global_concentration_pm0',
-                                         'q_global_concentration_pm%d' %
-                                         concentration_pm,
-                                         'mean_global_concentration_pm%d' %
-                                         concentration_pm,))
+                                         'b_med', 'se_b', 'n_eff',))
+
+    # Append local concentration information
+    summaries = nprf.append_fields(base=summaries,
+                                   names=local_concentrations.keys(),
+                                   data=local_concentrations.values())
+    
+    # Append global concentration information
+    summaries = nprf.append_fields(base=summaries,
+                                   names=global_concentrations.keys(),
+                                   data=global_concentrations.values())
+
+    # Write summaries to delimited text file
     libio.write_recarray_to_file(fname=path_summaries, data=summaries,
                                  header=True, sep=' ')
 
     # Run detection, if requested
     if p_detect is not None and not null:
-        # Find detected positions
-        detected = np.where(p_local_concentration_pm > p_detect)[0]
+        for pm in pm_list:
+            # Find detected positions
+            key = 'p_local_concentration_pm%d' % pm
+            detected = np.where(local_concentrations[key] > p_detect)[0]
 
-        # Condense regions
-        detected, n = condense_detections(detected)
+            # Condense regions
+            detected, n = condense_detections(detected)
 
-        # Write detections to text file
-        pattern_detections = cfg['mcmc_output']['detections_pattern']
-        pattern_detections = pattern_detections.strip()
-        path_detections = pattern_detections.format(**cfg) % chrom
+            # Write detections to text file
+            pattern_detections = cfg['mcmc_output']['detections_pattern']
+            pattern_detections = pattern_detections.strip()
+            path_detections = pattern_detections.format(**cfg) % (chrom, pm)
 
-        detections = np.rec.fromarrays([detected, n],
-                                       names=('pos', 'n'))
-        libio.write_recarray_to_file(fname=path_detections, data=detections,
-                                     header=True, sep=' ')
+            detections = np.rec.fromarrays([detected, n],
+                                           names=('pos', 'n'))
+            libio.write_recarray_to_file(fname=path_detections, data=detections,
+                                         header=True, sep=' ')
 
     # Clean-up scratch directory
     for name in names_npy:
