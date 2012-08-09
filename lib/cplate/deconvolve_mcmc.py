@@ -153,7 +153,7 @@ def initialize(data, cfg, rank=None, null=False):
     region_sizes = data['region_sizes']
 
     # Compute needed data properties
-    n_regions = region_ids.size
+    n_regions = region_ids.max() + 1
 
     # Initialize nucleotide-level occupancies
     if cfg['mcmc_params']['initialize_theta_from_em']:
@@ -275,7 +275,7 @@ def master(comm, n_proc, data, init, cfg):
     
     # Compute needed data properties
     chrom_length = y.size
-    n_regions = region_ids.size
+    n_regions = region_ids.max() + 1
 
     # Initialize data structures for draws
     theta       = np.empty((max_iter, chrom_length))
