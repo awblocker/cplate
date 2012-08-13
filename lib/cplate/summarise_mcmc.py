@@ -1,5 +1,6 @@
 import collections
 import gc
+import itertools
 import os
 import sys
 import tarfile
@@ -13,6 +14,153 @@ import libio
 #==============================================================================
 # General-purpose MCMC diagnostic and summarization functions
 #==============================================================================
+
+def mean_abs_dev(x, w=None, axis=None):
+    '''
+    Compute mean absolute deviation along axes of an array
+
+    Parameters
+    ----------
+    x : array_like
+        Array or array_like object to compute MAD of
+    w : array_like, optional
+        Optional vector of weights, broadcastable with x
+    axis : integer, optional
+        Axis along which mean absolute deviations are computed. The default is
+        to flatten x.
+
+    Returns
+    -------
+    mad : ndarray
+        A new array containing the mean absolute deviation values
+    '''
+    x = np.asarray(x)
+    if w is not None:
+        w = np.asarray(w)
+    else:
+        w = 1
+    
+    if axis == 0 or axis is None or x.ndim <= 1:
+        return np.sum(w*np.abs(x - np.sum(x*w, axis)), axis=axis)
+    
+    ind = [slice(None)] * x.ndim
+    ind[axis] = np.newaxis
+    
+    return np.sum(w*np.abs(x - np.sum(x*w, axis)[ind]), axis=axis)
+
+def localization_index(x, p, axis=None):
+    r'''
+    Compute localization index for given region
+
+    This normalizes the MADs by the MAD of a uniform distribution with the same
+    support, then subtracts this from 1. Mathematically, it is defined as
+    $$L = 1 - \frac{MAD}{n/4}\ ,$$
+    where $n$ is the length of the cluster region.
+    It is _not_ bounded between 0 and 1 (the maximum is 1 for a spike, the
+    minimum is -1 for two equal-weighted spikes at the region's boundary), but
+    it does provide a useful reference point.
+    
+    Parameters
+    ----------
+    x : array_like
+        Array or array_like object to compute localization index from
+    p : array_like
+        Array of probabilities, broadcastable with x
+    axis : integer, optional
+        Axis along which localization indices are computed. The default is
+        to flatten x.
+
+    Returns
+    -------
+    L : ndarray
+        A new array containing the values of the localization index.
+    '''
+    m = mean_abs_dev(x=x, w=p, axis=axis)
+    n = max(x.size, p.size) / m.size
+    return 1. - m / (n/4.)
+
+def entropy(p, axis=None):
+    '''
+    Compute entropy along axes of an array
+
+    Parameters
+    ----------
+    p : array_like
+        Array or array_like object containing PMFs to compute entropy from.
+    axis : integer, optional
+        Axis along which entropies are computed. The default is to flatten p.
+        Note p.sum(axis) should be 1.
+
+    Returns
+    -------
+    e : ndarray
+        A new array containing the entropies
+    '''
+    p = np.asarray(p)
+    lp = np.log2(p)
+    lp[~np.isfinite(lp)] = 0.
+    
+    if axis == 0 or axis is None or p.ndim <= 1:
+        return np.sum(-p*lp, axis=axis)
+    
+    ind = [slice(None)] * p.ndim
+    ind[axis] = np.newaxis
+    
+    return np.sum(-p*lp, axis=axis)
+
+def structure_index(x, axis=None):
+    r'''
+    Compute structure index along axes of an array
+
+    Whereas the MAD-based index measures localization as spread from the
+    cluster's center, this entropy-based index measures structure more
+    generally. Entropy is minimized for a single spike and maximized for a
+    uniform. This seems like reasonable behavior for our purposes. I'm calling
+    this the **structure index**, computed as
+    $$ S = 1 - \frac{E}{\log(n)}\ , $$
+    where $E$ is the entropy of the distribution (given by x)
+    within each cluster and $n$ is the cluster's length. $E$ is calculated as
+    $$ E = \frac{1}{\sum_i \beta_i} \sum_i - \beta_i
+    \log\left(\frac{\beta_i}{\sum_i \beta_i}\right)\ .$$
+
+    Parameters
+    ----------
+    x : array_like
+        Array or array_like object containing regions for which the structure
+        index will be computed.
+    axis : integer, optional
+        Axis along which structure indices are computed. The default is to
+        flatten p.  Note p.sum(axis) should be 1.
+
+    Returns
+    -------
+    s : ndarray
+        A new array containing the structure indices
+    '''
+    p = x / np.sum(x,axis=axis)[:,np.newaxis]
+    E = entropy(p, axis=axis)
+    return 1. - E / np.log2(x.size / E.size)
+
+def gaussian_window(h=80, sigma=20.):
+    '''
+    Builds a normalized Gaussian window
+
+    Parameters
+    ----------
+    - h : int
+        Integer half-width for window.
+    - sigma : float
+        Standard deviation for Gaussian window.
+
+    Returns
+    -------
+    - w : float np.ndarray
+        Array of length 2*h + 1 containing window.
+    '''
+    # Build Gaussian window
+    w = np.exp(-np.arange(-h,h+1)**2/2./sigma**2)
+    w /= w.sum()
+    return w
 
 def effective_sample_sizes(**kwargs):
     '''
@@ -370,6 +518,45 @@ def greedy_maxima_search(x, min_spacing=100, remove_boundary=1, verbose=0):
     out[positions] = 1
     return out
 
+def get_cluster_centers(x, window, min_spacing, edge_correction=True):
+    '''
+    Find cluster centers via Parzen smoothing and greedy search
+
+    Parameters
+    ----------
+    x : array_like
+        Array (1d) containing sequence to be smoothed and clustered
+    window : array_like
+        Array (1d) containing window for Parzen smoothing
+    min_spacing : int
+        Minimum spacing for greedy local maximum search
+    edge_correction : bool, optional
+        Correct for edge effects in Parzen smoothing? True is analogous to local
+        mean, False is analogous to local sum
+
+    Returns
+    -------
+    centers : integer ndarray
+        A new (1d) ndarray containing the cluster centers. Its length is the
+        number of cluster centers, and each entry is a position. This is _not_
+        indicator notation.
+    '''
+    # Set baseline for edge correction
+    if edge_correction:
+        baseline = np.convolve(np.ones_like(x), window, 'same')
+    else:
+        baseline = 1.
+
+    # Parzen window smoothing of sequence
+    s = np.convolve(x, window, 'same')/baseline
+    
+    # Identify maxima
+    clusters_bool = greedy_maxima_search(s, min_spacing=min_spacing,
+                                         remove_boundary=min_spacing/2)
+
+    # Return their locations, not indicators
+    return np.where(clusters_bool)[0]
+
 def summarise(cfg, chrom=1, null=False):
     '''
     Coordinate summarisation of MCMC results.
@@ -559,3 +746,145 @@ def summarise(cfg, chrom=1, null=False):
 
     return 0
 
+def summarise_clusters(cfg, chrom=1, null=False):
+    '''
+    Coordinate summarisation of MCMC results by cluster.
+
+    Clusters are defined via Parzen window smoothing with a cfg-specified
+    bandwidth and minimum separation. Following clustering, all cluster-level
+    summaries are computed within each iteration (localization, structure,
+    occupancy, etc.). The reported outputs are posterior summaries of these
+    cluster-level summaries (mean, SD, etc.).
+
+    Parameters
+    ----------
+    - cfg : dictionary
+        Dictionary of parameters containing at least those relevant MCMC
+        draw and summary output paths and parameters for summarization.
+    - chrom : int
+        Index of chromosome to analyze
+    - null : bool
+        Summarise null results?
+
+    Returns
+    -------
+    - status : int
+        Integer status for summarisation. 0 for success, > 0 for failure.
+    '''
+    # Reference useful information in local namespace
+    n_burnin    = cfg['mcmc_params']['n_burnin']
+    scratch     = cfg['mcmc_summaries']['path_scratch']
+    # Cluster-level summary information
+    cluster_min_spacing = cfg['mcmc_summaries']['cluster_min_spacing']
+    cluster_bw = cfg['mcmc_summaries']['cluster_bw']
+    cluster_width = cfg['mcmc_summaries']['cluster_width']
+    h = cluster_width/2
+    
+    # Check for existence and writeability of scratch directory
+    if os.access(scratch, os.F_OK):
+        # It exists, check for read-write
+        if not os.access(scratch, os.R_OK | os.W_OK):
+            print >> sys.stderr, ("Error --- Cannot read and write to %s" %
+                                  scratch)
+            return 1
+    else:
+        # Otherwise, try to make the directory
+        os.makedirs(scratch)
+
+    # Extract results to scratch directory
+    if null:
+        pattern_results = cfg['mcmc_output']['null_out_pattern']
+    else:
+        pattern_results = cfg['mcmc_output']['out_pattern']
+    pattern_results = pattern_results.strip()
+    path_results = pattern_results.format(**cfg) % chrom
+    
+    archive = tarfile.open(name=path_results, mode='r:*')
+    archive.extractall(path=scratch)
+    names_npy = archive.getnames()
+    archive.close()
+
+    # Load results of interest
+    theta   = np.load(scratch + '/theta.npy', mmap_mode='r')
+    mu      = np.load(scratch + '/mu.npy')
+
+    # Remove burnin
+    if n_burnin > 0:
+        mu = mu[n_burnin:]
+        theta = theta[n_burnin:]
+
+    # Compute posterior mean of coefficients
+    # This looks inefficient, but it saves memory --- a lot of memory
+    b_postmean = np.array([np.mean(np.exp(theta_k)) for theta_k in theta.T])
+    
+    # Setup window for clustering
+    cluster_window = gaussian_window(h=h, sigma=cluster_bw)
+
+    # Get cluster centers
+    cluster_centers = get_cluster_centers(x=b_postmean, window=cluster_window,
+                                          min_spacing=cluster_min_spacing,
+                                          edge_correction=True)
+    n_clusters = cluster_centers.size
+
+    # Create slices by cluster for efficient access
+    cluster_slices = [slice(max(0, c-h), min(c+h+1, theta.shape[1]), 1) for c in
+                      cluster_centers]
+
+    # Extract cluster sizes
+    cluster_sizes = np.array([s.stop - s.start for s in cluster_slices],
+                             dtype=np.int)
+
+    # Allocate arrays for cluster-level summaries
+    cluster_summaries = collections.OrderedDict()
+    cluster_summaries['center'] = cluster_centers
+    cluster_summaries['cluster_length'] = cluster_sizes
+    cluster_summaries['occupancy'] = np.empty(n_clusters, dtype=np.float)
+    cluster_summaries['occupancy_se'] = np.empty(n_clusters, dtype=np.float) 
+    cluster_summaries['localization'] = np.empty(n_clusters, dtype=np.float)
+    cluster_summaries['localization_se'] = np.empty(n_clusters, dtype=np.float)
+    cluster_summaries['structure'] = np.empty(n_clusters, dtype=np.float)
+    cluster_summaries['structure_se'] = np.empty(n_clusters, dtype=np.float)
+    
+    # Compute cluster-level summaries, iterating over clusters
+    for i, center, cluster in itertools.izip(xrange(n_clusters),
+                                             cluster_centers, cluster_slices):
+        # Extract cluster coefficient draws
+        b_draws = np.exp(theta[:,cluster])
+        p_draws = (b_draws.T / np.sum(b_draws, 1)).T
+        
+        # Compute posterior mean occupancy and its SD
+        cluster_summaries['occupancy'][i] = np.mean(b_draws)*cluster_sizes[i]
+        cluster_summaries['occupancy_se'][i] = np.std(np.sum(b_draws, axis=1))
+
+        # Compute localization index by draw
+        x=np.arange(cluster_sizes[i])[np.newaxis,:]
+        localization = localization_index(x=x, p=p_draws, axis=1)
+        cluster_summaries['localization'][i] = np.mean(localization)
+        cluster_summaries['localization_se'][i] = np.std(localization)
+
+        # Compute structure index by draw
+        structure = structure_index(x=b_draws, axis=1)
+        cluster_summaries['structure'][i] = np.mean(structure)
+        cluster_summaries['structure_se'][i] = np.std(structure)
+
+    # Provide nicely-formatted delimited output for analyses and plotting
+    if null:
+        pattern_summaries = cfg['mcmc_output']['null_cluster_pattern']
+    else:
+        pattern_summaries = cfg['mcmc_output']['cluster_pattern']
+    pattern_summaries = pattern_summaries.strip()
+    path_summaries = pattern_summaries.format(**cfg) % chrom
+
+    # Build recarray of summaries, starting with coefficients and diagnostics
+    summaries = np.rec.fromarrays(cluster_summaries.values(),
+                                  names=cluster_summaries.keys())
+
+    # Write summaries to delimited text file
+    libio.write_recarray_to_file(fname=path_summaries, data=summaries,
+                                 header=True, sep=' ')
+
+    # Clean-up scratch directory
+    for name in names_npy:
+        os.remove(scratch + '/' + name)
+
+    return 0
