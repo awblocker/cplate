@@ -1,6 +1,7 @@
 #!python
 
 # Load libraries
+import gc
 import sys
 import getopt
 import itertools
@@ -97,6 +98,9 @@ def main(argv):
         for chrom, null in itertools.product(chrom_list, null_settings):
             # Summarise MCMC output
             summarise_mcmc.summarise(cfg=cfg, chrom=chrom, null=null)
+
+            # Clean-up before next chromosome
+            gc.collect()
 
 if __name__ == '__main__':
     main(sys.argv[1:])
