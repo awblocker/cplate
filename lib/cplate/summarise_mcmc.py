@@ -659,7 +659,8 @@ def summarise(cfg, chrom=1, null=False):
         gc.collect()
         
         # Posterior quantiles for global concentrations
-        baseline_global = (np.sum(np.exp(theta), 1) / theta.shape[1]
+        baseline_global = (np.array([np.sum(np.exp(theta_t)) for theta_t in
+                                     theta]) / theta.shape[1]
                             * bp_per_nucleosome)
         
         # Setup arrays for means and quantiles by basepair
@@ -682,11 +683,11 @@ def summarise(cfg, chrom=1, null=False):
     
     # Compute posterior means
     theta_postmean = np.mean(theta, 0)
-    b_postmean = np.mean(np.exp(theta), 0)
+    b_postmean = np.array([np.mean(np.exp(theta_k)) for theta_k in theta.T])
 
     # Compute standard errors
     theta_se = np.std(theta, 0)
-    b_se = np.std(np.exp(theta), 0)
+    b_se = np.array([np.std(np.exp(theta_k)) for theta_k in theta.T])
 
     # Compute posterior medians
     theta_postmed = np.median(theta, 0)
