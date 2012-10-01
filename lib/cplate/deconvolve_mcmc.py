@@ -24,9 +24,6 @@ STOPTAG     = 0
 SYNCTAG     = 1
 WORKTAG     = 2
 
-# Interval between M-steps
-INTERVAL    = 4
-
 def load_data(chrom, cfg, null=False):
     '''
     Load and setup all data for runs.
@@ -56,6 +53,8 @@ def load_data(chrom, cfg, null=False):
             Vector of region sizes by region id.
         - region_ids : integer ndarray
             Vector of distinct region ids.
+        - template : ndarray
+            Vector containing coefficients for template. Should sum to 1.
     '''
     # Load template data
     template = np.loadtxt(cfg['data']['template_path'].format(**cfg))
@@ -171,9 +170,9 @@ def initialize(data, cfg, rank=None, null=False):
 
         theta = np.log(np.loadtxt(coef_path))
     else:
-        theta = np.log(y+1.0)
+        theta = np.log(y + 1.)
 
-    # Initialize
+    # Initialize parameters
     if cfg['mcmc_params']['initialize_params_from_em']:
         # Load parameters from EM iterations
         if null:
@@ -186,8 +185,10 @@ def initialize(data, cfg, rank=None, null=False):
 
         param_dtype = [('mu', np.float),
                        ('sigmasq', np.float)]
-        mu, sigmasq = np.loadtxt(param_path, skiprows=1, dtype=param_dtype,
-                                 usecols=(1,2), unpack=True, ndmin=1)
+        params = np.loadtxt(param_path, skiprows=1, dtype=param_dtype,
+                            usecols=(1,2), unpack=True, ndmin=1)
+        mu = params[0].copy()
+        sigmasq = params[1].copy()
     else:
         mu = np.zeros(n_regions)
         sigmasq = np.ones(n_regions)
@@ -592,7 +593,8 @@ def rmh_worker_theta(comm, block_width, start, y, template, theta, mu, sigmasq,
     comm.Send(ret_val, dest=MPIROOT, tag=accept)
 
 def rhmc_worker_theta(comm, block_width, start, y, template, theta, mu, sigmasq,
-                      region_types, prop_df=5., eps=0.1, n_steps=100):
+                      region_types, prop_df=5., eps=0.1, n_steps=100,
+                      sigmasq_p=1.):
     # Compute needed data properties
     chrom_length = y.size
     w = template.size/2 + 1
@@ -614,32 +616,24 @@ def rhmc_worker_theta(comm, block_width, start, y, template, theta, mu, sigmasq,
     # Setup initial return value
     ret_val = np.empty(block_width)
 
-#    # Run optimization to obtain conditional posterior mode
-#    theta_hat = lib.deconvolve(lib.loglik_convolve,
-#                               lib.dloglik_convolve,
-#                               y[block], region_types[block], template,
-#                               mu, sigmasq,
-#                               subset=subset, theta0=theta_block,
-#                               log=True,
-#                               messages=0)[0]
-#
-#    # Compute (sparse) conditional observed information
-#    X = sparse.spdiags((np.ones((template.size,size_block)).T *
-#                        template).T, diags=range(-w+1, w),
-#                        m=size_block, n=size_block, format='csr')
-#
-#    info = lib.ddloglik(theta=theta_hat,
-#                        theta0=theta_block,
-#                        X=X, Xt=X, y=y[block],
-#                        mu=mu, sigmasq=sigmasq,
-#                        region_types=region_types[block],
-#                        subset=subset, log=True)
-#    info = info[subset,:]
-#    info = info.tocsc()
-#    info = info[:,subset]
+    # Calculate diagonal of Hessian if requested (by setting sigma.p to None)
+    if sigmasq_p is None:
+        #result = lib.deconvolve(lib.loglik_convolve, lib.dloglik_convolve,
+        #                        y[block], region_types[block], template,
+        #                        mu, sigmasq,
+        #                        subset=subset, theta0=theta_block,
+        #                        log=True,
+        #                        messages=0)
+        sigmasq_p = lib.ddloglik_diag_convolve(theta=theta_subset, y=y[block],
+                                               region_types=region_types[block],
+                                               template=template, mu=mu,
+                                               sigmasq=sigmasq,
+                                               theta0=theta_block,
+                                               subset=subset, log=True)
+    sigma_p = np.sqrt(sigmasq_p)
 
     # Draw momentum variables
-    p = np.random.randn(size_subset)
+    p = np.random.randn(size_subset)*sigma_p
     p_0 = p.copy()
 
     # Initialize new draw of theta
@@ -647,24 +641,23 @@ def rhmc_worker_theta(comm, block_width, start, y, template, theta, mu, sigmasq,
 
     # Run leapfrog iterations
     grad = lib.dloglik_convolve(theta=theta_draw, y=y[block],
-                                 region_types=region_types[block],
-                                 template=template, mu=mu, sigmasq=sigmasq,
-                                 theta0=theta_block, subset=subset, log=True)
+                                region_types=region_types[block],
+                                template=template, mu=mu, sigmasq=sigmasq,
+                                theta0=theta_block, subset=subset, log=True)
 
     # Start with half step for momentum
     p -= eps*grad / 2.
-
+    
     # Alternate full steps for position and momentum
     for i in xrange(n_steps):
         # Full step for position
-        theta_draw += eps*p
+        theta_draw += eps*p/sigmasq_p
         # Update gradient
         grad = lib.dloglik_convolve(theta=theta_draw, y=y[block],
-                                     region_types=region_types[block],
-                                     template=template, mu=mu,
-                                     sigmasq=sigmasq, theta0=theta_block,
-                                     subset=subset, log=True)
-        # Full step for momentum, execept at the end of the trajectory
+                                    region_types=region_types[block],
+                                    template=template, mu=mu, sigmasq=sigmasq,
+                                    theta0=theta_block, subset=subset, log=True)
+        # Full step for momentum, except at the end of the trajectory
         if i<(n_steps - 1): p -= eps*grad
 
     # Half step for momentum at the end
@@ -689,17 +682,32 @@ def rhmc_worker_theta(comm, block_width, start, y, template, theta, mu, sigmasq,
                                              sigmasq=sigmasq, subset=None,
                                              theta0=theta_block, log=True)
 
-    log_kinetic_diff = 0.5*np.sum(p**2 - p_0**2)
+    log_kinetic_diff = 0.5*np.sum((p**2 - p_0**2)/sigmasq_p)
 
     # Execute MH step
     log_accept_prob = log_target_ratio - log_kinetic_diff
-    #print block, log_target_ratio, log_kinetic_diff, log_accept_prob
     if np.log(np.random.uniform()) < log_accept_prob:
         accept = 1
         ret_val[:end-start] = theta_prop[original]
     else:
         accept = 0
         ret_val[:end-start] = theta_block[original]
+
+    if np.isnan(log_accept_prob):
+        print sigmasq_p.min(), sigmasq_p.mean(), sigmasq_p.max(), sigmasq_p.std()
+        print >> sys.stderr, -lib.loglik_convolve(theta=theta_prop, y=y[block],
+                                                  region_types=region_types[block],
+                                                  template=template, mu=mu,
+                                                  sigmasq=sigmasq, subset=None,
+                                                  theta0=theta_prop, log=True)
+        print >> sys.stderr, -lib.loglik_convolve(theta=theta_block, y=y[block],
+                                                  region_types=region_types[block],
+                                                  template=template, mu=mu,
+                                                  sigmasq=sigmasq, subset=None,
+                                                  theta0=theta_block, log=True)
+        print >> sys.stderr, log_kinetic_diff
+        print >> sys.stderr, log_target_ratio
+        print >> sys.stderr, log_accept_prob, accept
 
     # Transmit result
     comm.Send(ret_val, dest=MPIROOT, tag=accept)
@@ -779,7 +787,8 @@ def worker(comm, rank, n_proc, data, init, cfg):
             # Execute HMC step, including sending result
             rhmc_worker_theta(comm=comm, block_width=block_width, start=start,
                               y=y, template=template, theta=theta, mu=mu,
-                              sigmasq=sigmasq, region_types=region_types)
+                              sigmasq=sigmasq, region_types=region_types,
+                              sigmasq_p=np.ones(1))
 
 def run(cfg, comm=None, chrom=1, null=False):
     '''
