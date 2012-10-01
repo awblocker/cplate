@@ -3,6 +3,10 @@ import numpy as np
 from scipy import optimize, sparse
 from scipy.sparse import sparsetools
 
+# Define constants
+EPS = np.spacing(1)
+SQRT_EPS = np.sqrt(EPS)
+
 # Define functions
 def csr_scale_rows(A, x):
     sparsetools.csr_scale_rows(A.shape[0], A.shape[1],
@@ -85,10 +89,45 @@ def dloglik_convolve(theta, y, region_types, template, subset, theta0,
     u = logb - mu[region_types]
     
     grad = omega * np.convolve(1.-y/lam, template, mode='same')
+    if log:
+        grad *= b
+        grad += u/sigmasq[region_types]
+        return grad[subset]
+    
+    # Adjustments for unlogged case
     grad += u/sigmasq[region_types]/b
-    if log: grad *= b
-    #
     return grad[subset]
+
+def ddloglik_diag_convolve(theta, y, region_types, template, subset, theta0, mu,
+                           sigmasq, omega=1.0, log=False):
+    b = theta0.copy()
+    b[subset] = theta
+    logb = b
+    if log: b = np.exp(logb)
+    else: logb = np.log(b)
+    
+    lam = omega * np.convolve(b, template, mode='same')
+    u = logb - mu[region_types]
+    
+    # First component from second derivative of log-likelihood wrt b, rescaled
+    # as needed for log-transformation
+    dd = omega*np.convolve(y/lam**2, template**2, mode='same')
+
+    if log:
+        # Rescale for chain rule
+        dd *= b**2
+
+        # Add gradient component from chain rule
+        dd += omega * np.convolve(1.-y/lam, template, mode='same') * b
+
+        # Second derivative of log-normal prior wrt log(b)
+        dd += 1/sigmasq[region_types]
+        return dd[subset]
+
+    # Adjustments for unlogged case
+    # Don't need to worry about the gradient, but log-prior needs adjustment
+    dd += (1. - u)/sigmasq[region_types]/b**2
+    return dd[subset]
 
 def ddloglik(theta, y, region_types, X, Xt, subset, theta0,
              mu, sigmasq, omega=1.0, log=True):
