@@ -49,12 +49,15 @@ def loglik_convolve(theta, y, region_types, template, subset, theta0,
     else: logb = np.log(b)
     
     lam = omega * np.convolve(b, template, mode='same')
+    lam += SQRT_EPS
     
     u = logb - mu[region_types]
     
     val = np.sum(lam) - np.sum( y * np.log(lam) )
     val += np.sum(u*u/sigmasq[region_types])/2.0
     val += np.log(sigmasq[region_types]).sum()/2.0
+    if not log:
+        val += np.sum(logb)
     
     return val
 
@@ -85,6 +88,7 @@ def dloglik_convolve(theta, y, region_types, template, subset, theta0,
     else: logb = np.log(b)
     
     lam = omega * np.convolve(b, template, mode='same')
+    lam += SQRT_EPS
     
     u = logb - mu[region_types]
     
@@ -96,6 +100,7 @@ def dloglik_convolve(theta, y, region_types, template, subset, theta0,
     
     # Adjustments for unlogged case
     grad += u/sigmasq[region_types]/b
+    grad += 1./b
     return grad[subset]
 
 def ddloglik_diag_convolve(theta, y, region_types, template, subset, theta0, mu,
