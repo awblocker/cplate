@@ -593,8 +593,8 @@ def rmh_worker_theta(comm, block_width, start, y, template, theta, mu, sigmasq,
     comm.Send(ret_val, dest=MPIROOT, tag=accept)
 
 def rhmc_worker_theta(comm, block_width, start, y, template, theta, mu, sigmasq,
-                      region_types, prop_df=5., eps=0.1, n_steps=100,
-                      sigmasq_p=1.):
+                      region_types, prop_df=5., eps_max=0.1, eps_min=0.001,
+                      n_steps=100, sigmasq_p=1., adj=10, verbose=0):
     # Compute needed data properties
     chrom_length = y.size
     w = template.size/2 + 1
@@ -604,11 +604,11 @@ def rhmc_worker_theta(comm, block_width, start, y, template, theta, mu, sigmasq,
     block = slice(max(start-w, 0), min(end+w, chrom_length))
     size_block  = block.stop - block.start
 
+    original = slice(start-block.start, size_block - (block.stop-end))
+
     subset = slice(w*(start!=0)+start-block.start,
                    size_block-w*(end!=chrom_length) - (block.stop-end))
     size_subset = subset.stop - subset.start
-
-    original = slice(start-block.start, size_block - (block.stop-end))
     
     theta_block     = theta[:size_block]
     theta_subset    = theta_block[subset]
@@ -618,13 +618,13 @@ def rhmc_worker_theta(comm, block_width, start, y, template, theta, mu, sigmasq,
 
     # Calculate diagonal of Hessian if requested (by setting sigma.p to None)
     if sigmasq_p is None:
-        #result = lib.deconvolve(lib.loglik_convolve, lib.dloglik_convolve,
-        #                        y[block], region_types[block], template,
-        #                        mu, sigmasq,
-        #                        subset=subset, theta0=theta_block,
-        #                        log=True,
-        #                        messages=0)
-        sigmasq_p = lib.ddloglik_diag_convolve(theta=theta_subset, y=y[block],
+        result = lib.deconvolve(lib.loglik_convolve, lib.dloglik_convolve,
+                                y[block], region_types[block], template,
+                                mu, sigmasq,
+                                subset=subset, theta0=theta_block,
+                                log=True,
+                                messages=0)
+        sigmasq_p = lib.ddloglik_diag_convolve(theta=result[0], y=y[block],
                                                region_types=region_types[block],
                                                template=template, mu=mu,
                                                sigmasq=sigmasq,
@@ -636,32 +636,46 @@ def rhmc_worker_theta(comm, block_width, start, y, template, theta, mu, sigmasq,
     p = np.random.randn(size_subset)*sigma_p
     p_0 = p.copy()
 
-    # Initialize new draw of theta
-    theta_draw = theta_subset.copy()
-
-    # Run leapfrog iterations
-    grad = lib.dloglik_convolve(theta=theta_draw, y=y[block],
-                                region_types=region_types[block],
-                                template=template, mu=mu, sigmasq=sigmasq,
-                                theta0=theta_block, subset=subset, log=True)
-
-    # Start with half step for momentum
-    p -= eps*grad / 2.
+    # Repeat leapfrog process until valid result is obtained
+    leapfrog_done = False
+    eps = np.random.uniform(eps_min, eps_max)
     
-    # Alternate full steps for position and momentum
-    for i in xrange(n_steps):
-        # Full step for position
-        theta_draw += eps*p/sigmasq_p
-        # Update gradient
+    while not leapfrog_done:
+        # Initialize new draw of theta
+        theta_draw = theta_subset.copy()
+
+        # Run leapfrog iterations
         grad = lib.dloglik_convolve(theta=theta_draw, y=y[block],
                                     region_types=region_types[block],
                                     template=template, mu=mu, sigmasq=sigmasq,
                                     theta0=theta_block, subset=subset, log=True)
-        # Full step for momentum, except at the end of the trajectory
-        if i<(n_steps - 1): p -= eps*grad
+        
+        # Start with half step for momentum
+        p -= eps*grad / 2.
+        
+        # Alternate full steps for position and momentum
+        for i in xrange(n_steps):
+            # Full step for position
+            theta_draw += eps*p/sigmasq_p
+            # Update gradient
+            grad = lib.dloglik_convolve(theta=theta_draw, y=y[block],
+                                        region_types=region_types[block],
+                                        template=template, mu=mu,
+                                        sigmasq=sigmasq, theta0=theta_block,
+                                        subset=subset, log=True)
+            # Full step for momentum, except at the end of the trajectory
+            if i<(n_steps - 1): p -= eps*grad
 
-    # Half step for momentum at the end
-    p -= eps*grad/2.
+        # Half step for momentum at the end
+        p -= eps*grad/2.
+
+        if np.min(np.isfinite(theta_draw)):
+            leapfrog_done = True
+        else:
+            # Restart with smaller step size
+            eps /= adj
+            p[:] = p_0
+            theta_draw[:] = theta_subset
 
     # Reverse momentum at end of trajectory to make the proposal symmetric.
     p = -p
@@ -692,8 +706,11 @@ def rhmc_worker_theta(comm, block_width, start, y, template, theta, mu, sigmasq,
     else:
         accept = 0
         ret_val[:end-start] = theta_block[original]
+    
+    if verbose > 0:
+        print np.mean(sigma_p), np.std(sigma_p), eps, log_accept_prob, accept, start, end
 
-    if np.isnan(log_accept_prob):
+    if verbose > 1 and np.isnan(log_accept_prob):
         print sigmasq_p.min(), sigmasq_p.mean(), sigmasq_p.max(), sigmasq_p.std()
         print >> sys.stderr, -lib.loglik_convolve(theta=theta_prop, y=y[block],
                                                   region_types=region_types[block],
@@ -708,6 +725,121 @@ def rhmc_worker_theta(comm, block_width, start, y, template, theta, mu, sigmasq,
         print >> sys.stderr, log_kinetic_diff
         print >> sys.stderr, log_target_ratio
         print >> sys.stderr, log_accept_prob, accept
+
+    # Transmit result
+    comm.Send(ret_val, dest=MPIROOT, tag=accept)
+
+def rhmc_worker_beta(comm, block_width, start, y, template, theta, mu, sigmasq,
+                     region_types, prop_df=5., eps=0.01, n_steps=100,
+                     sigmasq_p=1., adj=2., verbose=0):
+    # Compute needed data properties
+    chrom_length = y.size
+    w = template.size/2 + 1
+
+    # Calculate subset of data to work on
+    end = min(chrom_length, start + block_width)
+    block = slice(max(start-w, 0), min(end+w, chrom_length))
+    size_block  = block.stop - block.start
+
+    original = slice(start-block.start, size_block - (block.stop-end))
+
+    subset = slice(w*(start!=0)+start-block.start,
+                   size_block-w*(end!=chrom_length) - (block.stop-end))
+    size_subset = subset.stop - subset.start
+    
+    beta_block     = np.exp(theta[:size_block])
+    beta_subset    = beta_block[subset]
+
+    # Setup initial return value
+    ret_val = np.empty(block_width)
+
+    # Calculate diagonal of Hessian if requested (by setting sigma.p to None)
+    if sigmasq_p is None:
+        result = lib.deconvolve(lib.loglik_convolve, lib.dloglik_convolve,
+                                y[block], region_types[block], template,
+                                mu, sigmasq,
+                                subset=subset, theta0=beta_block,
+                                log=False,
+                                messages=0)
+        sigmasq_p = lib.ddloglik_diag_convolve(theta=result[0], y=y[block],
+                                               region_types=region_types[block],
+                                               template=template, mu=mu,
+                                               sigmasq=sigmasq,
+                                               theta0=beta_block,
+                                               subset=subset, log=False)
+    sigma_p = np.sqrt(sigmasq_p)
+
+    ## Repeat leapfrog process until valid result is obtained
+    #leapfrog_done = False
+    #
+    #while not leapfrog_done:
+    # Draw momentum variables
+    p = np.random.randn(size_subset)*sigma_p
+    p_0 = p.copy()
+
+    # Initialize new draw of theta
+    beta_draw = beta_subset.copy()
+    
+    # Initial gradient computation
+    grad = lib.dloglik_convolve(theta=beta_draw, y=y[block],
+                                region_types=region_types[block],
+                                template=template, mu=mu, sigmasq=sigmasq,
+                                theta0=beta_block, subset=subset, log=False)
+
+    # Run leapfrog iterations
+    for i in xrange(n_steps):
+        # Half step for momentum
+        p -= eps*grad/2.
+
+        # Full step for position
+        beta_draw += eps*p/sigmasq_p
+
+        # Reflect to satisfy constraints
+        p[beta_draw <= 0] *= -1.
+        beta_draw[beta_draw <= 0] *= -1.
+
+        # Update gradient
+        grad = lib.dloglik_convolve(theta=beta_draw, y=y[block],
+                                    region_types=region_types[block],
+                                    template=template, mu=mu,
+                                    sigmasq=sigmasq, theta0=beta_block,
+                                    subset=subset, log=False)
+
+        # Half step for momentum after reflection
+        p -= eps*grad/2.
+
+    # Reverse momentum at end of trajectory to make the proposal symmetric.
+    p *= -1.
+
+    # Construct complete proposal for theta
+    beta_prop = beta_block.copy()
+    beta_prop[subset] = beta_draw
+
+    # Compute log target and kinetic energy differences
+    log_target_ratio = -lib.loglik_convolve(theta=beta_prop, y=y[block],
+                                            region_types=region_types[block],
+                                            template=template, mu=mu,
+                                            sigmasq=sigmasq, subset=None,
+                                            theta0=beta_prop, log=False)
+    log_target_ratio -= -lib.loglik_convolve(theta=beta_block, y=y[block],
+                                             region_types=region_types[block],
+                                             template=template, mu=mu,
+                                             sigmasq=sigmasq, subset=None,
+                                             theta0=beta_block, log=False)
+
+    log_kinetic_diff = 0.5*np.sum((p**2 - p_0**2)/sigmasq_p)
+
+    # Execute MH step
+    log_accept_prob = log_target_ratio - log_kinetic_diff
+    if np.log(np.random.uniform()) < log_accept_prob:
+        accept = 1
+        ret_val[:end-start] = np.log(beta_prop[original])
+    else:
+        accept = 0
+        ret_val[:end-start] = np.log(beta_block[original])
+    
+    if verbose > 0:
+        print np.mean(sigma_p), np.std(sigma_p), eps, log_accept_prob, accept, start, end
 
     # Transmit result
     comm.Send(ret_val, dest=MPIROOT, tag=accept)
