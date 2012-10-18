@@ -1,0 +1,107 @@
+#!python
+
+# Load libraries
+import gc
+import sys
+import getopt
+import itertools
+
+import yaml
+
+from cplate import summarise_mcmc
+
+HELP = '''
+Usage: cplate_summarise_params_mcmc [options] CONFIG [CONFIG ...]
+
+Options:
+  -h, --help            Show this help message and exit
+  -c CHROM, --chrom=CHROM
+                        Comma-separated indices of chromosomes to analyze;
+                        defaults to 1
+  --null                Run using null input from CONFIG
+  --both                Run using both actual and null input from CONFIG
+  --all                 Run all chromosomes
+
+Details of the required format for the YAML CONFIG files can be found it further
+documentation.
+'''
+
+def main(argv):
+    '''
+    Main function for option-parsing and startup.
+    
+    Takes sys.argv[1:] as input.
+    '''
+    # Set default values for options
+    chrom_list  = None
+    null        = False
+    both        = False
+    run_all     = False
+    
+    # Parse arguments and options
+    opts, args = getopt.getopt(argv, "hc:",
+                               ["help", "chrom=", "null", "all", "both"])
+    for option, value in opts:
+        if option in ('-h', "--help"):
+            print >> sys.stderr, HELP
+            sys.exit(2)
+        elif option in ('-c', '--chrom'):
+            chrom_list = [int(x) for x in value.split(',')]
+        elif option == '--null':
+            null = True
+        elif option == '--both':
+            both = True
+        elif option == '--all':
+            run_all = True
+        else:
+            print >> sys.stderr, "Error -- unknown option %s" % option
+            sys.exit(1)
+
+    # Check for logical consistency
+    if run_all and (chrom_list is not None or null):
+        print >> sys.stderr, "Error -- cannot have all with null or chrom"
+        sys.exit(1)
+
+    if null and both:
+        print >> sys.stderr, "Error -- cannot have both and null"
+        sys.exit(1)
+
+    # Set null settings to iterate over
+    if null:
+        null_settings = (True,)
+    elif both:
+        null_settings = (False, True)
+    else:
+        null_settings = (False,)
+
+    # Set default chrom value
+    if chrom_list is None:
+        chrom_list = [1]
+
+    if len(args) > 0:
+        cfg_paths = args
+    else:
+        print >> sys.stderr, "Error -- need path to YAML configuration"
+        sys.exit(1)
+    
+    # Iterate over configurations
+    for cfg_path in cfg_paths:
+        # Parse YAML configuration
+        cfg_file = open(cfg_path, 'rb')
+        cfg = yaml.load(cfg_file)
+        cfg_file.close()
+        
+        if run_all:
+            chrom_list = range(1, cfg['data']['n_chrom']+1)
+        
+        # Iterate over chromosomes
+        for chrom, null in itertools.product(chrom_list, null_settings):
+            # Summarise MCMC output
+            summarise_mcmc.summarise_params(cfg=cfg, chrom=chrom, null=null)
+
+            # Clean-up before next chromosome
+            gc.collect()
+
+if __name__ == '__main__':
+    main(sys.argv[1:])
+

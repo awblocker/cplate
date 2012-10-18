@@ -889,3 +889,105 @@ def summarise_clusters(cfg, chrom=1, null=False):
         os.remove(scratch + '/' + name)
 
     return 0
+
+def summarise_params(cfg, chrom=1, null=False):
+    '''
+    Coordinate summarisation of MCMC parameter draws.
+
+    Parameters
+    ----------
+    - cfg : dictionary
+        Dictionary of parameters containing at least those relevant MCMC
+        draw and summary output paths and parameters for summarization.
+    - chrom : int
+        Index of chromosome to analyze
+    - null : bool
+        Summarise null results?
+
+    Returns
+    -------
+    - status : int
+        Integer status for summarisation. 0 for success, > 0 for failure.
+    '''
+    # Reference useful information in local namespace
+    n_burnin    = cfg['mcmc_params']['n_burnin']
+    scratch     = cfg['mcmc_summaries']['path_scratch']
+    
+    # Check for existence and writeability of scratch directory
+    if os.access(scratch, os.F_OK):
+        # It exists, check for read-write
+        if not os.access(scratch, os.R_OK | os.W_OK):
+            print >> sys.stderr, ("Error --- Cannot read and write to %s" %
+                                  scratch)
+            return 1
+    else:
+        # Otherwise, try to make the directory
+        os.makedirs(scratch)
+
+    # Extract results to scratch directory
+    if null:
+        pattern_results = cfg['mcmc_output']['null_out_pattern']
+    else:
+        pattern_results = cfg['mcmc_output']['out_pattern']
+    pattern_results = pattern_results.strip()
+    path_results = pattern_results.format(**cfg) % chrom
+    
+    archive = tarfile.open(name=path_results, mode='r:*')
+    archive.extractall(path=scratch)
+    names_npy = archive.getnames()
+    archive.close()
+
+    # Load results of interest
+    mu = np.load(scratch + '/mu.npy')
+    sigmasq = np.load(scratch + '/sigmasq.npy')
+    region_ids = np.load(scratch + '/region_ids.npy')
+
+    # Remove burnin
+    if n_burnin > 0:
+        mu = mu[n_burnin:]
+        sigmasq = sigmasq[n_burnin:]
+
+    # Compute posterior means
+    mu_postmean = np.mean(mu, 0)
+    sigmasq_postmean = np.mean(sigmasq, 0)
+    sigma_postmean = np.mean(np.sqrt(sigmasq), 0)
+
+    # Compute posterior medians
+    mu_postmed = np.median(mu, 0)
+    sigmasq_postmed = np.median(sigmasq, 0)
+    sigma_postmed = np.median(np.sqrt(sigmasq), 0)
+
+    # Compute standard errors
+    mu_se = np.std(mu, 0)
+    sigmasq_se = np.std(sigmasq, 0)
+    sigma_se = np.std(np.sqrt(sigmasq), 0)
+
+    # Provide nicely-formatted delimited output for analyses and plotting
+    if null:
+        pattern_summaries = cfg['mcmc_output']['null_param_pattern']
+    else:
+        pattern_summaries = cfg['mcmc_output']['param_pattern']
+    pattern_summaries = pattern_summaries.strip()
+    path_summaries = pattern_summaries.format(**cfg) % chrom
+
+    # Build recarray of summaries, starting with coefficients and diagnostics
+    summaries = np.rec.fromarrays([region_ids, mu_postmean, mu_postmed, mu_se,
+                                   sigmasq_postmean, sigmasq_postmed,
+                                   sigmasq_se, sigma_postmean, sigma_postmed,
+                                   sigma_se],
+                                  names= ('region_id', 'mu_postmean',
+                                          'mu_postmed', 'mu_se',
+                                          'sigmasq_postmean', 'sigmasq_postmed',
+                                          'sigmasq_se', 'sigma_postmean',
+                                          'sigma_postmed', 'sigma_se'))
+
+    # Write summaries to delimited text file
+    libio.write_recarray_to_file(fname=path_summaries, data=summaries,
+                                 header=True, sep=' ')
+
+    # Clean-up scratch directory
+    for name in names_npy:
+        os.remove(scratch + '/' + name)
+
+    return 0
+
