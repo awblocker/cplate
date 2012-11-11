@@ -194,18 +194,41 @@ def effective_sample_sizes(**kwargs):
             draws = draws[:,np.newaxis]
 
         # Demean the draws
-        draws = draws - draws.mean(axis=0)
+        z = (draws - np.mean(draws, axis=0)) / np.std(draws, axis=0)
 
         # Compute lag-1 autocorrelation by column
-        acf = np.mean(draws[1:]*draws[:-1], axis=0) / np.var(draws, axis=0)
+        rho = np.mean(z[1:] * z[:-1], axis=0)
 
-        # Compute ess from ACF
-        ess[var] = np.shape(draws)[0]*(1.-acf)/(1.+acf)
+        # Compute ess from lag-1 autocorrelation
+        ess[var] = np.shape(draws)[0]*(1. - rho)/(1. + rho)
 
     if len(kwargs) > 1:
         return ess
     else:
         return ess[kwargs.keys()[0]]
+
+def ess1d(x):
+    '''
+    Estimate effective sample size of input using AR(1) approximation.
+
+    Parameters
+    ----------
+    x : 1d ndarray
+        Unidimensional array of draws
+
+    Returns
+    -------
+    ess : float
+        The estimated effective sample size of the given array.
+    '''
+    # Compute lag-1 autocorrelation by column
+    z = (x - x.mean()) / x.std()
+    rho = np.mean(z[1:] * z[:-1])
+
+    # Compute ess from lag-1 autocorrelation
+    ess = x.size * (1. - rho) / (1. + rho)
+
+    return ess
 
 def posterior_means(**kwargs):
     '''
@@ -616,7 +639,7 @@ def summarise(cfg, chrom=1, null=False, mmap=False):
 
     # Load results of interest
     if mmap:
-        mmap_mode = 'r'
+        mmap_mode = 'r+'
     else:
         mmap_mode = None
 
@@ -629,8 +652,9 @@ def summarise(cfg, chrom=1, null=False, mmap=False):
         theta = theta[n_burnin:]
 
     # Compute effective sample sizes
-    n_eff = effective_sample_sizes(theta=theta)
-
+    n_eff = np.array([ess1d(theta_k) for theta_k in theta.T])
+    gc.collect()
+    
     # Compute concentration summaries
     local_concentrations = collections.OrderedDict()
     global_concentrations = collections.OrderedDict()
@@ -695,9 +719,9 @@ def summarise(cfg, chrom=1, null=False, mmap=False):
     b_se = np.array([np.std(np.exp(theta_k)) for theta_k in theta.T])
 
     # Compute posterior medians
-    theta_postmed = np.median(theta, 0)
+    theta_postmed = np.array([np.median(theta_k) for theta_k in theta.T])
     b_postmed = np.exp(theta_postmed)
-
+    
     # Provide nicely-formatted delimited output for analyses and plotting
     if null:
         pattern_summaries = cfg['mcmc_output']['null_summary_pattern']
@@ -721,7 +745,7 @@ def summarise(cfg, chrom=1, null=False, mmap=False):
     summaries = nprf.append_fields(base=summaries,
                                    names=global_concentrations.keys(),
                                    data=global_concentrations.values())
-
+    
     # Write summaries to delimited text file
     libio.write_recarray_to_file(fname=path_summaries, data=summaries,
                                  header=True, sep=' ')
