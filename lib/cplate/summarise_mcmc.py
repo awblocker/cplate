@@ -557,7 +557,7 @@ def get_cluster_centers(x, window, min_spacing, edge_correction=True):
     # Return their locations, not indicators
     return np.where(clusters_bool)[0]
 
-def summarise(cfg, chrom=1, null=False):
+def summarise(cfg, chrom=1, null=False, mmap=False):
     '''
     Coordinate summarisation of MCMC results.
 
@@ -615,7 +615,12 @@ def summarise(cfg, chrom=1, null=False):
     archive.close()
 
     # Load results of interest
-    theta   = np.load(scratch + '/theta.npy', mmap_mode='r')
+    if mmap:
+        mmap_mode = 'r'
+    else:
+        mmap_mode = None
+
+    theta   = np.load(scratch + '/theta.npy', mmap_mode=mmap_mode)
     mu      = np.load(scratch + '/mu.npy')
 
     # Remove burnin

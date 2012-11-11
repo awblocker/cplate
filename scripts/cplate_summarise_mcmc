@@ -21,6 +21,8 @@ Options:
   --null                Run using null input from CONFIG
   --both                Run using both actual and null input from CONFIG
   --all                 Run all chromosomes
+  --mmap                Use memory-map IO for coefficients. Default is to load
+                        coefficients into memory.
 
 Details of the required format for the YAML CONFIG files can be found it further
 documentation.
@@ -37,10 +39,12 @@ def main(argv):
     null        = False
     both        = False
     run_all     = False
+    mmap = False
     
     # Parse arguments and options
     opts, args = getopt.getopt(argv, "hc:",
-                               ["help", "chrom=", "null", "all", "both"])
+                               ["help", "chrom=", "null", "all", "both",
+                                'mmap'])
     for option, value in opts:
         if option in ('-h', "--help"):
             print >> sys.stderr, HELP
@@ -53,6 +57,8 @@ def main(argv):
             both = True
         elif option == '--all':
             run_all = True
+        elif option == '--mmap':
+            mmap = True
         else:
             print >> sys.stderr, "Error -- unknown option %s" % option
             sys.exit(1)
@@ -97,7 +103,7 @@ def main(argv):
         # Iterate over chromosomes
         for chrom, null in itertools.product(chrom_list, null_settings):
             # Summarise MCMC output
-            summarise_mcmc.summarise(cfg=cfg, chrom=chrom, null=null)
+            summarise_mcmc.summarise(cfg=cfg, chrom=chrom, null=null, mmap=mmap)
 
             # Clean-up before next chromosome
             gc.collect()
