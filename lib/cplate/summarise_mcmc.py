@@ -715,7 +715,7 @@ def summarise(cfg, chrom=1, null=False, mmap=False):
     b_postmean = np.array([np.mean(np.exp(theta_k)) for theta_k in theta.T])
 
     # Compute standard errors
-    theta_se = np.std(theta, 0)
+    theta_se = np.array([np.std(theta_k) for theta_k in theta.T])
     b_se = np.array([np.std(np.exp(theta_k)) for theta_k in theta.T])
 
     # Compute posterior medians
