@@ -836,7 +836,7 @@ def summarise_clusters(cfg, chrom=1, null=False):
 
     # Load results of interest
     theta   = np.load(scratch + '/theta.npy', mmap_mode='r')
-    mu      = np.load(scratch + '/mu.npy')
+    mu      = np.load(scratch + '/mu.npy', mmap_mode='r')
 
     # Remove burnin
     if n_burnin > 0:
