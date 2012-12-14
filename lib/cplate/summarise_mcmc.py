@@ -490,6 +490,8 @@ def greedy_maxima_search(x, min_spacing=100, remove_boundary=1, verbose=0):
             peaks[n_peaks] = candidate
             n_peaks += 1
 
+    peaks = peaks[:n_peaks]
+    peaks.sort()
     return peaks
 
 def maxima_search(x, min_spacing=100, remove_boundary=1, verbose=0):
