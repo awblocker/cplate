@@ -438,8 +438,63 @@ def condense_detections(detections):
 
 def greedy_maxima_search(x, min_spacing=100, remove_boundary=1, verbose=0):
     '''
-    Greedily search for local maxima in sequence subject to minimum spacing
+    Greedy search for local maxima in sequence subject to minimum spacing
     constraint.
+
+    Parameters
+    ----------
+    - x : ndarray
+        1d sequence of values to search for local maxima
+    - min_spacing : int
+        Minimum spacing of positions. Greedy search continues until this
+        constraint is met.
+    - remove_boundary : int
+        Length of region to exclude at each end of the sequence. 
+    - verbose : int
+        Level of verbosity in output
+
+    Returns
+    -------
+    - out : ndarray
+        Integer array of same shape as x containing ones at positions found in
+        greedy search and zeros everywhere else.
+    '''
+    # Find local maxima in sequence; need indices of maxima, not binary
+    # indicators
+    candidates       = np.where(find_maxima(x))[0]
+
+    if remove_boundary > 0:
+        # Exclude boundary positions
+        candidates = candidates[candidates >= remove_boundary]
+        candidates = candidates[candidates < x.size - remove_boundary]
+
+    # Order positions by score, descending
+    candidates[:] = candidates[np.argsort(x[candidates])]
+    candidates = candidates[::-1]
+    
+    # Initialize vector for identified peaks
+    peaks = np.zeros(np.size(x) / min_spacing + 2, dtype=int)
+    peaks[0] = candidates[0]
+    n_peaks = 1
+
+    if np.size(candidates) > 1:
+        for candidate in candidates:
+            # Compute minimal distance between candidate and existing peaks
+            distance_candidate = np.min(np.abs(candidate - peaks[:n_peaks]))
+
+            # Skip if distance is less than constraint
+            if distance_candidate <= min_spacing:
+                continue
+
+            # Otherwise, add candidate to the peak list
+            peaks[n_peaks] = candidate
+            n_peaks += 1
+
+    return peaks
+
+def maxima_search(x, min_spacing=100, remove_boundary=1, verbose=0):
+    '''
+    Search for local maxima in sequence subject to minimum spacing constraint.
 
     Parameters
     ----------
@@ -537,9 +592,7 @@ def greedy_maxima_search(x, min_spacing=100, remove_boundary=1, verbose=0):
         # Update spacing
         spacing         = np.diff(positions)
 
-    out = np.zeros(np.size(x), dtype=np.int)
-    out[positions] = 1
-    return out
+    return positions
 
 def get_cluster_centers(x, window, min_spacing, edge_correction=True):
     '''
@@ -574,11 +627,11 @@ def get_cluster_centers(x, window, min_spacing, edge_correction=True):
     s = np.convolve(x, window, 'same')/baseline
     
     # Identify maxima
-    clusters_bool = greedy_maxima_search(s, min_spacing=min_spacing,
-                                         remove_boundary=min_spacing/2)
+    clusters = greedy_maxima_search(s, min_spacing=min_spacing,
+                                    remove_boundary=min_spacing/2)
 
     # Return their locations, not indicators
-    return np.where(clusters_bool)[0]
+    return clusters
 
 def summarise(cfg, chrom=1, null=False, mmap=False):
     '''
