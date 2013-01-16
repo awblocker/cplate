@@ -141,6 +141,44 @@ def structure_index(x, axis=None):
     E = entropy(p, axis=axis)
     return 1. - E / np.log2(x.size / E.size)
 
+def sparsity_index(x, q, axis=None):
+    r'''
+    Compute sparsity index along axes of an array
+
+    This index provides a direct measure of the sparsity of a the distribution
+    of nucleosome positions within a given structure. It has one scientific
+    parameter q, used as follows:
+        Let $n_q$ be the number of positions within a given cluster needed to
+        capture $q$ of that cluster's expected reads. Then, the sparsity index
+        is computed as
+        $$R = 1 - \frac{n_q}{q (2w + 1)} \ ,$$
+        where the cluster is 2w + 1 positions wide.
+    This is normalized like the other indices to be 1 for a single spike and 0
+    for a locally uniform distribution of nucleosome positions.
+
+    Parameters
+    ----------
+    x : array_like
+        Array or array_like object containing regions for which the sparsity
+        index will be computed.
+    q : float
+        Quantile of expected read distribution (across positions) to compute
+    axis : integer, optional
+        Axis along which sparsity indices are computed. The default is to
+        flatten x.
+
+    Returns
+    -------
+    s : ndarray
+        A new array containing the structure indices
+    '''
+    p = -x / np.sum(x,axis=axis)[:,np.newaxis]
+    p.sort(axis=axis)
+    p = np.cumsum(-p, axis=axis)
+    n_q = np.apply_along_axis(np.searchsorted, axis, p, q)
+
+    return 1. - n_q * 1. / (q * x.size / n_q.size)
+
 def gaussian_window(h=80, sigma=20.):
     '''
     Builds a normalized Gaussian window
@@ -864,6 +902,10 @@ def summarise_clusters(cfg, chrom=1, null=False):
     cluster_bw = cfg['mcmc_summaries']['cluster_bw']
     cluster_width = cfg['mcmc_summaries']['cluster_width']
     h = cluster_width/2
+    try:
+        q_sparsity = cfg['mcmc_summaries']['q_sparsity']
+    except:
+        q_sparsity = 0.9
     
     # Check for existence and writeability of scratch directory
     if os.access(scratch, os.F_OK):
@@ -929,6 +971,8 @@ def summarise_clusters(cfg, chrom=1, null=False):
     cluster_summaries['localization_se'] = np.empty(n_clusters, dtype=np.float)
     cluster_summaries['structure'] = np.empty(n_clusters, dtype=np.float)
     cluster_summaries['structure_se'] = np.empty(n_clusters, dtype=np.float)
+    cluster_summaries['sparsity'] = np.empty(n_clusters, dtype=np.float)
+    cluster_summaries['sparsity_se'] = np.empty(n_clusters, dtype=np.float)
     
     # Compute cluster-level summaries, iterating over clusters
     for i, center, cluster in itertools.izip(xrange(n_clusters),
@@ -951,6 +995,11 @@ def summarise_clusters(cfg, chrom=1, null=False):
         structure = structure_index(x=b_draws, axis=1)
         cluster_summaries['structure'][i] = np.mean(structure)
         cluster_summaries['structure_se'][i] = np.std(structure)
+
+        # Compute sparsity index by draw
+        sparsity = sparsity_index(x=b_draws, q=q_sparsity, axis=1)
+        cluster_summaries['sparsity'][i] = np.mean(sparsity)
+        cluster_summaries['sparsity_se'][i] = np.std(sparsity)
 
     # Provide nicely-formatted delimited output for analyses and plotting
     if null:
