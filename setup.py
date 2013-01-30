@@ -13,7 +13,8 @@ REQUIRES = ['numpy(>=1.6)','scipy(>=0.9)', 'yaml', 'mpi4py']
 PACKAGE_DIR = {'': 'lib'}
 PACKAGES = ['cplate']
 SCRIPTS = ('deconvolve_em', 'deconvolve_mcmc', 'detect_em', 'summarise_mcmc',
-           'summarise_clusters_mcmc', 'summarise_params_mcmc')
+           'summarise_clusters_mcmc', 'summarise_params_mcmc',
+           'estimate_template')
 SCRIPTS = ['scripts/cplate_' + script for script in SCRIPTS]
 
 setup(name=NAME,
@@ -26,4 +27,4 @@ setup(name=NAME,
       package_dir=PACKAGE_DIR,
       scripts=SCRIPTS,
       requires=REQUIRES
-      )
+     )
