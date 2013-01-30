@@ -5,6 +5,7 @@ import getopt
 import numpy as np
 from scipy import optimize
 
+from cplate.libio import *
 
 def mvlogit(p):
     '''
@@ -76,6 +77,39 @@ def initialize(x, n, l0, eps=np.sqrt(np.finfo(float).eps)):
     # Normalize q & handle small values
     q[q<eps] = eps
     return q/q.sum()
+
+def rescale2(t):
+    '''
+    Rescale template t by 1/2; gives distribution of x/2 if x ~ t, where 
+    non-integer values are handled by random rounding.
+
+    If t.size = 2*w + 1, returns vector of size w + 1
+    '''
+    # Build transformation matrix
+    # Only working with half of template t[w:] for simplicity
+    w   = t.size / 2
+    w2  = (w+1) / 2
+    #
+    A       = np.zeros((w2+1,w+1))
+    #
+    # Rules for mode
+    A[0,0]  = 1
+    A[0,1]  = 1
+    #
+    # Iterate over remaining output positions
+    for i in xrange(1,w2+1):
+        A[i,2*i-1]  = 0.5
+        if 2*i < w+1:
+            A[i,2*i] = 1
+            if 2*i < w:
+                A[i,2*i+1] = 0.5
+    #
+    # Compute t2[w2:] as matrix product
+    t2      = np.dot(A, t[w:])
+    # Mirror positions
+    t2      = np.r_[t2[:0:-1], t2]
+    #
+    return t2
 
 def estimateTemplate(x, n, l0, thresh=0.999, verbose=0):
     '''
@@ -166,38 +200,71 @@ def buildTemplateFromDist(distFile, outFile, l0, coverage, verbose=0,
     
     # Write template in column format to outFile
     np.savetxt(outFile, t[:,np.newaxis])
-
-def rescale2(t):
-    '''
-    Rescale template t by 1/2; gives distribution of x/2 if x ~ t, where 
-    non-integer values are handled by random rounding.
-
-    If t.size = 2*w + 1, returns vector of size w + 1
-    '''
-    # Build transformation matrix
-    # Only working with half of template t[w:] for simplicity
-    w   = t.size / 2
-    w2  = (w+1) / 2
-    #
-    A       = np.zeros((w2+1,w+1))
-    #
-    # Rules for mode
-    A[0,0]  = 1
-    A[0,1]  = 1
-    #
-    # Iterate over remaining output positions
-    for i in xrange(1,w2+1):
-        A[i,2*i-1]  = 0.5
-        if 2*i < w+1:
-            A[i,2*i] = 1
-            if 2*i < w:
-                A[i,2*i+1] = 0.5
-    #
-    # Compute t2[w2:] as matrix product
-    t2      = np.dot(A, t[w:])
-    # Mirror positions
-    t2      = np.r_[t2[:0:-1], t2]
-    #
-    return t2
     
+def estimateErrorDist(x, n, l0, thresh=0.999, verbose=0):
+    '''
+    Function to calculate MLE for template distribution
+    
+    Takes vector of unique observed lengths (x) and number of fragments
+    observed at each length (n), as well as baseline fragment length (l0)
+    
+    Returns estimated small template (t), complete template (tComplete),
+    template width (w), error distribution (q), and estimated distribution of
+    fragment lengths (p)
+    
+    Threshold specifies probability for template to cover; defaults to 0.999
+    '''
+    # Set dtypes as needed
+    x = x.astype(int)
+    
+    # Initialize q
+    q = initialize(x, n, l0)
+    
+    # Transform q via multivariate logit
+    theta0 = mvlogit(q)
+    
+    # Run optimization
+    if verbose > 1:
+        iprint = verbose - 1
+    else:
+        iprint = -1
+    
+    theta, val, info = optimize.fmin_l_bfgs_b(obj, theta0, args=(x, n, l0),
+                                              approx_grad=True,
+                                              iprint=iprint)
+    
+    # Print diagnostic information if request
+    if verbose > 0:
+        print >> sys.stderr, "Log-likelihood = %g" % (-val)
+        print >> sys.stderr, "Convergence = %s" % info['warnflag']
+        if info['warnflag'] > 1:
+            print >> sys.stderr, info['task']
+    
+    # Calculate p & t
+    q = invmvlogit(theta)
+    
+    return q
+
+def buildErrorDistFromLengths(distFile, outFile, l0, coverage, verbose=0,
+                              rescale=False):
+    '''
+    Wrapper function for template estimation process
+    Calls estimateTemplate
+    Takes distFile, outFile, l0, and coverage as inputs
+    Writes final template to outFile
+    '''
+    # Read distribution from file
+    x, n = np.loadtxt(distFile, unpack=True)
+    
+    # Estimate digestion error distribution
+    q = estimateErrorDist(x, n, l0, coverage, verbose)
+    e = np.arange(-np.floor(l0/2), q.size-np.floor(l0/2), dtype=int)
+    
+    if verbose > 0:
+        print >> sys.stderr, 'w = %d' % w
+
+    # Write digestion error distribution in column format to outFile
+    result = np.rec.fromarrays([e,q])
+    write_recarray_to_file(sys.stdout, result, header=False)
+
 
