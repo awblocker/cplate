@@ -3,6 +3,8 @@
 import getopt
 import sys
 
+import yaml
+
 from cplate import lib_template
 
 kHelpMessage = '''
@@ -16,7 +18,12 @@ DESCRIPTION
     Estimates distribution of digestion errors via non-parametric maximum
     likelihood (discrete deconvolution) using distribution of fragment lengths.
     
-    Takes two-column fragment length distribution as input from file or stdin.
+    Typically takes YAML configuration file as input. This must have a data
+    section with keys length_dist_path and template_path. The script will read a
+    two-column fragment length distribution from length_dist_path and write a
+    template to template_path.
+    With the --raw option, it instead takes two-column fragment length
+    distribution as input from file or stdin.
     First column is length, second is number of reads with that length.
     
     Prints estimated digestion error distribution in two-column format (error,
@@ -25,6 +32,8 @@ DESCRIPTION
 OPTIONS
     --coverage=         Coverage for shortened template; defaults to 0.999
     --l0=               Baseline fragment length; defaults to 147
+    --raw               Interpret FILE as length distribution file rather than
+                        YAML configuration.
     -h/--help           Print help message and exit
 '''
 
@@ -34,10 +43,11 @@ def main(argv):
   l0 = 147
   rescale = False
   verbose = 0
+  raw = False
   
   # Parse arguments
   options, args = getopt.getopt(argv, "hv:",
-                                ["coverage =","l0=","help","verbose="])
+                                ["coverage =","l0=","help","verbose=", "raw"])
   #
   for opt, value in options:
     if opt in ('-h', "--help"):
@@ -47,21 +57,33 @@ def main(argv):
       coverage = float(value)
     elif opt in ("--l0",):
       l0 = int(value)
+    elif opt == '--raw':
+      raw = True
     elif opt in ("-v", "--verbose"):
       verbose = int(value)
     else:
       print >> sys.stderr, "Error -- option %s not recognized" % opt
       sys.exit(1)
-  #
-  if len(args) < 1:
+  
+  if len(args) < 1 and raw:
     distFile = sys.stdin
-  else:
+  elif raw:
     lengthDistPath = args[0]
+  else:
     try:
-      distFile = open(lengthDistPath, "rb")
+      with open(args[0], 'rb') as f:
+        cfg = yaml.load(f)
     except:
-      print >> sys.stderr, "Error -- could not open %s" % lengthDistPath
+      print >> sys.stderr, "Error -- could not open %s" % args[0]
       sys.exit(1)
+
+    lengthDistPath = cfg['data']['length_dist_path'].format(**cfg)
+
+  try:
+    distFile = open(lengthDistPath, "rb")
+  except:
+    print >> sys.stderr, "Error -- could not open %s" % lengthDistPath
+    sys.exit(1)
   
   # Build distribution and write to stdout
   lib_template.buildErrorDistFromLengths(distFile, sys.stdout, l0, coverage,
