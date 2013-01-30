@@ -5,8 +5,8 @@ NAME = 'cplate'
 VERSION = '0.1'
 AUTHOR = 'Alexander W Blocker'
 AUTHOR_EMAIL = 'ablocker@gmail.com'
-URL = 'http://www.awblocker.com'
-DESCRIPTION = 'Probablistic deconvolution for chromatin-structure estimation.'
+URL = 'https://www.github.com/awblocker/cplate'
+DESCRIPTION = 'Probabilistic deconvolution for chromatin-structure estimation.'
 
 REQUIRES = ['numpy(>=1.6)','scipy(>=0.9)', 'yaml', 'mpi4py']
 
