@@ -79,7 +79,7 @@ def main(argv):
       sys.exit(1)
 
     lengthDistPath = cfg['data']['length_dist_path'].format(**cfg)
-    outFile = open(cfg['data']['template_path'].format(**cfg), 'rb')
+    outFile = open(cfg['data']['template_path'].format(**cfg), 'wb')
 
   try:
     distFile = open(lengthDistPath, "rb")
