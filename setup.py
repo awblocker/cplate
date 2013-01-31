@@ -14,7 +14,7 @@ PACKAGE_DIR = {'': 'lib'}
 PACKAGES = ['cplate']
 SCRIPTS = ('deconvolve_em', 'deconvolve_mcmc', 'detect_em', 'summarise_mcmc',
            'summarise_clusters_mcmc', 'summarise_params_mcmc',
-           'estimate_template', 'estimate_digestion_dist')
+           'estimate_template', 'estimate_digestion_dist', 'segment_genome')
 SCRIPTS = ['scripts/cplate_' + script for script in SCRIPTS]
 
 setup(name=NAME,
@@ -28,3 +28,4 @@ setup(name=NAME,
       scripts=SCRIPTS,
       requires=REQUIRES
      )
+

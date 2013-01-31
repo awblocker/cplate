@@ -1,0 +1,98 @@
+#!python
+
+# Load libraries
+import sys
+import getopt
+import time
+import itertools
+
+import yaml
+
+from cplate import lib_segment
+
+HELP = '''
+Usage: cplate_segment_genome [options] GENEINDEX CONFIG [CONFIG ...]
+
+Options:
+  -l/--minlength=       Minimum length of segments. Defaults to 800.
+  -s/--sep=             Separator for GENEINDEX input. Defaults to \\t.
+  -v/--verbose=         Set verbosity of output. Defaults to 0.
+  -h, --help            Show this help message and exit
+
+Segments a genome using the hierarchical merging algorithm of Blocker and
+Airoldi 2013.
+
+GENEINDEX must be a path to a SEP-delimited file containing at least the
+following fields with appropriate column labels:
+  - chromosome : Integer (starting from 1) chromosome number
+  - start : Beginning of each ORF (TSS, preferably)
+  - stop : End of each TSS
+Can have start > stop or stop > start depending on the orientation of each gene
+along the chromosome.
+
+Details of the required format for the YAML CONFIG files can be found it further
+documentation.
+'''
+
+def main(argv):
+  '''
+  Main function for option-parsing and startup.
+  
+  Takes sys.argv[1:] as input.
+  '''
+  # Set default values for options
+  minLength = 800
+  sep = '\t'
+  verbose = 0
+  
+  # Parse arguments and options
+  opts, args = getopt.getopt(argv, "hl:s:v:",
+                 ["help", "minlength=", "sep=", "verbose="])
+  for option, value in opts:
+    if option in ('-h', "--help"):
+      print >> sys.stderr, HELP
+      sys.exit(2)
+    elif option in ('-l', '--minlength'):
+      minLength = int(value)
+      if minLength <= 0:
+        print >> sys.stderr, (
+          'Warning - Minimum length of %d implies no lower bound' % minLength)
+    elif option in ('-s', '--sep'):
+      sep = value
+    elif option in ('-v', '--verbose'):
+      verbose = int(value)
+    else:
+      print >> sys.stderr, "Error -- unknown option %s" % option
+      sys.exit(1)
+
+  if len(args) > 1:
+    gene_index_path = args[0]
+    cfg_paths = args[1:]
+  else:
+    print >> sys.stderr, "Error -- need GENEINDEX and at least one YAML config"
+    sys.exit(1)
+  
+  # Iterate over configurations
+  for cfg_path in cfg_paths:
+    # Parse YAML configuration
+    with open(cfg_path, 'rb') as f:
+      cfg = yaml.load(f)
+
+    # Extract paths
+    y_path = cfg['data']['chrom_path'].strip().format(**cfg)
+    regions_path = cfg['data']['regions_path'].strip().format(**cfg)
+    
+    # Run segmentation for given configuration file
+    with open(regions_path, 'wb') as outFile, \
+    open(gene_index_path, 'rb') as infoFile, \
+    open(y_path, 'rb') as readsFile:
+      lib_segment.segmentGenome(infoFile=infoFile,
+                                readsFile=readsFile,
+                                outFile=outFile,
+                                minLength=minLength,
+                                sep=sep,
+                                verbose=verbose)
+
+if __name__ == '__main__':
+  main(sys.argv[1:])
+
