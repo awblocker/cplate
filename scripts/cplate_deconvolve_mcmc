@@ -5,6 +5,7 @@ import sys
 import getopt
 import gc
 import itertools
+import os
 
 import yaml
 from mpi4py import MPI
@@ -94,6 +95,19 @@ def main(argv):
         cfg_file = open(cfg_path, 'rb')
         cfg = yaml.load(cfg_file)
         cfg_file.close()
+
+        # Check for existence and writeability of scratch directory
+        if comm.Get_rank() == deconvolve_mcmc.MPIROOT:
+            scratch = cfg['mcmc_params']['path_scratch']
+            if os.access(scratch, os.F_OK):
+                # It exists, check for read-write
+                if not os.access(scratch, os.R_OK | os.W_OK):
+                    print >> sys.stderr, ("Error --- Cannot read and write to %s" %
+                                          scratch)
+                    continue
+        else:
+            # Otherwise, try to make the directory
+            os.makedirs(scratch)
         
         if run_all:
             chrom_list = range(1, cfg['data']['n_chrom']+1)
