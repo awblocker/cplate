@@ -58,8 +58,8 @@ def main(argv):
             sys.exit(1)
 
     # Check for logical consistency
-    if run_all and (chrom_list is not None or null):
-        print >> sys.stderr, "Error -- cannot have all with null or chrom"
+    if run_all and (chrom_list is not None):
+        print >> sys.stderr, "Error -- cannot have all with chrom"
         sys.exit(1)
 
     if null and both:
