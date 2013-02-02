@@ -1124,3 +1124,61 @@ def summarise_params(cfg, chrom=1, null=False):
 
     return 0
 
+def detect_from_summaries(cfg, chrom=1):
+    '''
+    Detect local concentrations based on existing summaries.
+
+    Parameters
+    ----------
+    - cfg : dictionary
+        Dictionary of parameters containing at least those relevant MCMC
+        draw and summary output paths and parameters for summarization.
+    - chrom : int
+        Index of chromosome to analyze
+
+    Returns
+    -------
+    - status : int
+        Integer status for summarisation. 0 for success, > 0 for failure.
+    '''
+    # Reference useful information in local namespace
+    p_detect = cfg['mcmc_summaries']['p_detect']
+    
+    # Extract window size information (+/-) from config
+    concentration_pm = cfg['mcmc_summaries']['concentration_pm']
+    if isinstance(concentration_pm, str):
+        pm_list = [int(s) for s in concentration_pm.split(',')]
+    else:
+        pm_list = [concentration_pm]
+
+    # Get path to posterior summaries
+    pattern_summaries = cfg['mcmc_output']['summary_pattern']
+    pattern_summaries = pattern_summaries.strip()
+    path_summaries = pattern_summaries.format(**cfg) % chrom
+    
+    # Run detection
+    if p_detect is not None:
+        # Load summaries
+        summaries = np.genfromtxt(path_summaries, names=True)
+        
+        # Iterate of +/- settings
+        for pm in pm_list:
+            # Find detected positions
+            key = 'p_local_concentration_pm%d' % pm
+            detected = np.where(summaries[key] > p_detect)[0]
+
+            # Condense regions
+            detected, n = condense_detections(detected)
+
+            # Write detections to text file
+            pattern_detections = cfg['mcmc_output']['detections_pattern']
+            pattern_detections = pattern_detections.strip()
+            path_detections = pattern_detections.format(**cfg) % (chrom, pm)
+
+            detections = np.rec.fromarrays([detected, n],
+                                           names=('pos', 'n'))
+            libio.write_recarray_to_file(fname=path_detections, data=detections,
+                                         header=True, sep=' ')
+
+    return 0
+
