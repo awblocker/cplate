@@ -97,7 +97,6 @@ def main(argv):
         cfg_file.close()
 
         # Check for existence and writeability of scratch directory
-<<<<<<< HEAD
         if comm.Get_rank() == deconvolve_mcmc.MPIROOT:
             scratch = cfg['mcmc_params']['path_scratch']
             if os.access(scratch, os.F_OK):
@@ -106,18 +105,9 @@ def main(argv):
                     print >> sys.stderr, ("Error --- Cannot read and write to %s" %
                                           scratch)
                     continue
-=======
-        scratch = cfg['mcmc_params']['path_scratch']
-        if os.access(scratch, os.F_OK):
-            # It exists, check for read-write
-            if not os.access(scratch, os.R_OK | os.W_OK):
-                print >> sys.stderr, ("Error --- Cannot read and write to %s" %
-                                      scratch)
-                continue
->>>>>>> 3a531624f6321fce8fce962ee9b4e22de058858c
-        else:
-            # Otherwise, try to make the directory
-            os.makedirs(scratch)
+            else:
+                # Otherwise, try to make the directory
+                os.makedirs(scratch)
         
         if run_all:
             chrom_list = range(1, cfg['data']['n_chrom']+1)
