@@ -1,0 +1,58 @@
+#!python
+
+# Load libraries
+import sys
+import getopt
+import time
+import itertools
+
+import yaml
+
+from cplate import lib_simulate_null
+
+HELP = '''
+Usage: cplate_simulate_null [options] CONFIG [CONFIG ...]
+
+Options:
+  -h, --help            Show this help message and exit
+
+Simulate reads according to a permutation null, as specified in Blocker and
+Airoldi 2013.
+
+Details of the required format for the YAML CONFIG files can be found it further
+documentation.
+'''
+
+def main(argv):
+  '''
+  Main function for option-parsing and startup.
+  
+  Takes sys.argv[1:] as input.
+  '''
+  # Parse arguments and options
+  opts, args = getopt.getopt(argv, "h", ["help"])
+  for option, value in opts:
+    if option in ('-h', "--help"):
+      print >> sys.stderr, HELP
+      sys.exit(2)
+    else:
+      print >> sys.stderr, "Error -- unknown option %s" % option
+      sys.exit(1)
+
+  if len(args) > 0:
+    cfg_paths = args
+  else:
+    print >> sys.stderr, "Error -- at least one YAML config"
+    sys.exit(1)
+  
+  # Iterate over configurations
+  for cfg_path in cfg_paths:
+    # Parse YAML configuration
+    with open(cfg_path, 'rb') as f:
+      cfg = yaml.load(f)
+
+    lib_simulate_null.simulate_permutation_null(cfg)
+
+if __name__ == '__main__':
+  main(sys.argv[1:])
+
