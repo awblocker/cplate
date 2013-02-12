@@ -19,6 +19,8 @@ Options:
                         Comma-separated indices of chromosomes to analyze;
                         defaults to 1
   --all                 Run all chromosomes
+  --pm=                 Override pm setting in CONFIG. Single integer.
+  --threshold=          Override p_detect setting in CONFIG. Single float.
 
 Runs detection using existing posterior summaries
 
@@ -35,9 +37,12 @@ def main(argv):
     # Set default values for options
     chrom_list = None
     run_all = False
+    pm = None
+    threshold = None
     
     # Parse arguments and options
-    opts, args = getopt.getopt(argv, "hc:", ["help", "chrom=", "all"])
+    opts, args = getopt.getopt(argv, "hc:", ["help", "chrom=", "all", "pm=",
+                                             "threshold="])
     for option, value in opts:
         if option in ('-h', "--help"):
             print >> sys.stderr, HELP
@@ -50,6 +55,10 @@ def main(argv):
             both = True
         elif option == '--all':
             run_all = True
+        elif option == '--pm':
+            pm = int(value)
+        elif option == '--threshold':
+            threshold = float(value)
         else:
             print >> sys.stderr, "Error -- unknown option %s" % option
             sys.exit(1)
@@ -70,9 +79,15 @@ def main(argv):
         cfg_file = open(cfg_path, 'rb')
         cfg = yaml.load(cfg_file)
         cfg_file.close()
+
+        if pm is not None:
+            cfg['mcmc_summaries']['concentration_pm'] = pm
+        
+        if threshold is not None:
+            cfg['mcmc_summaries']['p_detect'] = threshold
         
         if run_all:
-            chrom_list = range(1, cfg['data']['n_chrom']+1)
+            chrom_list = range(1, cfg['data']['n_chrom'] + 1)
         
         # Iterate over chromosomes
         for chrom in chrom_list:
