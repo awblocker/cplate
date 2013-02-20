@@ -15,6 +15,39 @@ import libio
 # General-purpose MCMC diagnostic and summarization functions
 #==============================================================================
 
+def compute_n_large(x, p_threshold, axis=None):
+    '''
+    Compute number of large positions per draw (along axes of array).
+
+    Parameters
+    ----------
+    x : array_like
+        Array or array_like object of draws
+    p_threshold : float or iterable of floats
+        Threshold(s) for large positions as fraction of total
+    axis : integer, optional
+        Axis along which n_large is computed. The default is to flatten x.
+
+    Returns
+    -------
+    n_large : ndarray
+        A new array containing the values of n_large. Has one row per value of
+        p_threshold provided.
+    '''
+    # Compute normalized version of x
+    x = np.asarray(x)
+    s_x = np.sum(x,axis=axis)[:,np.newaxis]
+    p_x = x / s_x
+    
+    if not isinstance(p_threshold, collections.Iterable):
+        p_threshold = (p_threshold,)
+
+    n_large = np.empty((len(p_threshold), np.size(s_x)), dtype=int)
+    for i, p_i in enumerate(p_threshold):
+        n_large[i] = np.sum(p_x > p_i, axis=axis)
+
+    return n_large
+
 def mean_abs_dev(x, w=None, axis=None):
     '''
     Compute mean absolute deviation along axes of an array
@@ -172,12 +205,20 @@ def sparsity_index(x, q, axis=None):
     s : ndarray
         A new array containing the structure indices
     '''
-    p = -x / np.sum(x,axis=axis)[:,np.newaxis]
-    p.sort(axis=axis)
-    p = np.cumsum(-p, axis=axis)
-    n_q = np.apply_along_axis(np.searchsorted, axis, p, q)
+    s_x = np.sum(x,axis=axis)[:,np.newaxis]
+    p_x = -x / s_x
+    p_x.sort(axis=axis)
+    p_x = np.cumsum(-p_x, axis=axis)
+    
+    if not isinstance(q, np.ndarray):
+        q = np.array(q)
 
-    return 1. - n_q * 1. / (q * x.size / n_q.size)
+    n_q = np.empty((len(q), np.size(s_x)), dtype=int)
+
+    for i, q_i in enumerate(q):
+        n_q[i] = np.apply_along_axis(np.searchsorted, axis, p_x, q_i)
+
+    return (1. - n_q.T * 1. / (q * x.shape[1])).T
 
 def gaussian_window(h=80, sigma=20.):
     '''
@@ -902,10 +943,20 @@ def summarise_clusters(cfg, chrom=1, null=False):
     cluster_bw = cfg['mcmc_summaries']['cluster_bw']
     cluster_width = cfg['mcmc_summaries']['cluster_width']
     h = cluster_width/2
-    try:
-        q_sparsity = cfg['mcmc_summaries']['q_sparsity']
-    except:
-        q_sparsity = 0.9
+
+    # Extract q_sparsity information for n_large summaries from config
+    q_sparsity = cfg['mcmc_summaries']['q_sparsity']
+    if isinstance(q_sparsity, str):
+        q_sparsity = [float(s) for s in q_sparsity.split(',')]
+    else:
+        q_sparsity = [q_sparsity]
+
+    # Extract p_threshold information for n_large summaries from config
+    p_threshold = cfg['mcmc_summaries']['p_threshold']
+    if isinstance(p_threshold, str):
+        p_threshold = [float(s) for s in p_threshold.split(',')]
+    else:
+        p_threshold = [p_threshold]
     
     # Check for existence and writeability of scratch directory
     if os.access(scratch, os.F_OK):
@@ -961,6 +1012,12 @@ def summarise_clusters(cfg, chrom=1, null=False):
     cluster_sizes = np.array([s.stop - s.start for s in cluster_slices],
                              dtype=np.int)
 
+    # Create names for sparsity and n_large variables
+    names_sparsity = ["sparsityq%02.0f" % (q * 100) for q in q_sparsity]
+    names_sparsity_se = ["sparsityq%02.0f_se" % (q * 100) for q in q_sparsity]
+    names_nlarge = ["nlargep%02.0f" % (p * 100) for p in p_threshold]
+    names_nlarge_se = ["nlargep%02.0f_se" % (p * 100) for p in p_threshold]
+
     # Allocate arrays for cluster-level summaries
     cluster_summaries = collections.OrderedDict()
     cluster_summaries['center'] = cluster_centers
@@ -973,6 +1030,12 @@ def summarise_clusters(cfg, chrom=1, null=False):
     cluster_summaries['structure_se'] = np.empty(n_clusters, dtype=np.float)
     cluster_summaries['sparsity'] = np.empty(n_clusters, dtype=np.float)
     cluster_summaries['sparsity_se'] = np.empty(n_clusters, dtype=np.float)
+    for var in itertools.chain(
+        [item for items in itertools.izip(names_sparsity, names_sparsity_se) for
+         item in items],
+        [item for items in itertools.izip(names_nlarge, names_nlarge_se) for
+         item in items]):
+        cluster_summaries[var] = np.empty(n_clusters, dtype=np.float)
     
     # Compute cluster-level summaries, iterating over clusters
     for i, center, cluster in itertools.izip(xrange(n_clusters),
@@ -995,11 +1058,18 @@ def summarise_clusters(cfg, chrom=1, null=False):
         structure = structure_index(x=b_draws, axis=1)
         cluster_summaries['structure'][i] = np.mean(structure)
         cluster_summaries['structure_se'][i] = np.std(structure)
-
+        
         # Compute sparsity index by draw
         sparsity = sparsity_index(x=b_draws, q=q_sparsity, axis=1)
-        cluster_summaries['sparsity'][i] = np.mean(sparsity)
-        cluster_summaries['sparsity_se'][i] = np.std(sparsity)
+        for i_q in xrange(len(q_sparsity)):
+            cluster_summaries[names_sparsity[i_q]][i] = np.mean(sparsity[i_q])
+            cluster_summaries[names_sparsity_se[i_q]][i] = np.std(sparsity[i_q])
+
+        # Compute n_large by draw
+        n_large = compute_n_large(x=b_draws, p_threshold=p_threshold, axis=1)
+        for i_p in xrange(len(p_threshold)):
+            cluster_summaries[names_nlarge[i_p]][i] = np.mean(n_large[i_p])
+            cluster_summaries[names_nlarge_se[i_p]][i] = np.std(n_large[i_p])
 
     # Provide nicely-formatted delimited output for analyses and plotting
     if null:
