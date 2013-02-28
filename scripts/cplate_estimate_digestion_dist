@@ -41,7 +41,7 @@ def main(argv):
   # Set default parameters
   coverage = 0.999
   l0 = 147
-  rescale = False
+  rescale = True
   verbose = 0
   raw = False
   
