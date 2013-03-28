@@ -267,58 +267,58 @@ def buildErrorDistFromLengths(distFile, outFile, l0, coverage, verbose=0,
     result = np.rec.fromarrays([e,q])
     write_recarray_to_file(sys.stdout, result, header=False)
 
-def buildConditionalTemplateFromLengths(distFile, outFile, l0, coverage,
-                                        length_min=None, length_max=None,
-                                        verbose=0, rescale=False):
-    '''
-    Wrapper function for template estimation process, conditioning on a
-    particular range of fragment lengths.
-
-    First estimations digestion error distribution, then uses it estimate the
-    conditional template.
-
-    Takes distFile, outFile, l0, and coverage as inputs
-    Writes final template to outFile
-    '''
-    # Read distribution from file
-    x, n = np.loadtxt(distFile, unpack=True)
-    
-    # Estimate digestion error distribution
-    q = estimateErrorDist(x, n, l0, coverage, verbose)
-    e = np.arange(-np.floor(l0/2), q.size-np.floor(l0/2), dtype=int)
-
-    # Estimated distribution of summed lengths
-    q1, q2 = np.zeros( (2, q.size+1+l0) )
-    q1[:q.size] = q
-    q2[-q.size:] = q
-    p = np.convolve(q1, q2)[2*np.floor(l0/2)+1:]
-
-    # Compute conditional distribution of difference given the sum is between
-    # the given values
-    if length_min is None:
-        length_min = 1
-    if length_max is None:
-        length_max = np.max(x)
-
-    w = x.max() - l0 + np.floor(l0/2)
-    P_d = np.zeros((length_max - length_min + 1), 2 * w + 1)
-    for s in xrange(length_min - length_max + 1):
-        P_d[s, ] = 
-    
-    # Find template width
-    coverage = 2*np.cumsum(tComplete[tComplete.size/2+1:])
-    coverage += tComplete[tComplete.size/2]
-    w = np.min( np.where(coverage >= thresh) )
-    
-    # Output final template
-    t = tComplete[tComplete.size/2 - w : tComplete.size/2 + 1 + w]
-    t = t / t.sum()
-    
-    if verbose > 0:
-        print >> sys.stderr, 'w = %d' % w
-
-    # Write digestion error distribution in column format to outFile
-    result = np.rec.fromarrays([e,q])
-    write_recarray_to_file(sys.stdout, result, header=False)
+#def buildConditionalTemplateFromLengths(distFile, outFile, l0, coverage,
+#                                        length_min=None, length_max=None,
+#                                        verbose=0, rescale=False):
+#    '''
+#    Wrapper function for template estimation process, conditioning on a
+#    particular range of fragment lengths.
+#
+#    First estimations digestion error distribution, then uses it estimate the
+#    conditional template.
+#
+#    Takes distFile, outFile, l0, and coverage as inputs
+#    Writes final template to outFile
+#    '''
+#    # Read distribution from file
+#    x, n = np.loadtxt(distFile, unpack=True)
+#    
+#    # Estimate digestion error distribution
+#    q = estimateErrorDist(x, n, l0, coverage, verbose)
+#    e = np.arange(-np.floor(l0/2), q.size-np.floor(l0/2), dtype=int)
+#
+#    # Estimated distribution of summed lengths
+#    q1, q2 = np.zeros( (2, q.size+1+l0) )
+#    q1[:q.size] = q
+#    q2[-q.size:] = q
+#    p = np.convolve(q1, q2)[2*np.floor(l0/2)+1:]
+#
+#    # Compute conditional distribution of difference given the sum is between
+#    # the given values
+#    if length_min is None:
+#        length_min = 1
+#    if length_max is None:
+#        length_max = np.max(x)
+#
+#    w = x.max() - l0 + np.floor(l0/2)
+#    P_d = np.zeros((length_max - length_min + 1), 2 * w + 1)
+#    for s in xrange(length_min - length_max + 1):
+#        P_d[s, ] = 
+#    
+#    # Find template width
+#    coverage = 2*np.cumsum(tComplete[tComplete.size/2+1:])
+#    coverage += tComplete[tComplete.size/2]
+#    w = np.min( np.where(coverage >= thresh) )
+#    
+#    # Output final template
+#    t = tComplete[tComplete.size/2 - w : tComplete.size/2 + 1 + w]
+#    t = t / t.sum()
+#    
+#    if verbose > 0:
+#        print >> sys.stderr, 'w = %d' % w
+#
+#    # Write digestion error distribution in column format to outFile
+#    result = np.rec.fromarrays([e,q])
+#    write_recarray_to_file(sys.stdout, result, header=False)
 
 
