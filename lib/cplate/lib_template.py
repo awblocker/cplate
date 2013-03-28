@@ -89,13 +89,13 @@ def rescale2(t):
     # Only working with half of template t[w:] for simplicity
     w   = t.size / 2
     w2  = (w+1) / 2
-    #
-    A       = np.zeros((w2+1,w+1))
-    #
+    
+    A = np.zeros((w2+1,w+1))
+    
     # Rules for mode
     A[0,0]  = 1
     A[0,1]  = 1
-    #
+    
     # Iterate over remaining output positions
     for i in xrange(1,w2+1):
         A[i,2*i-1]  = 0.5
@@ -103,12 +103,12 @@ def rescale2(t):
             A[i,2*i] = 1
             if 2*i < w:
                 A[i,2*i+1] = 0.5
-    #
+    
     # Compute t2[w2:] as matrix product
-    t2      = np.dot(A, t[w:])
+    t2 = np.dot(A, t[w:])
     # Mirror positions
-    t2      = np.r_[t2[:0:-1], t2]
-    #
+    t2 = np.r_[t2[:0:-1], t2]
+    
     return t2
 
 def estimateTemplate(x, n, l0, thresh=0.999, verbose=0):
@@ -259,6 +259,60 @@ def buildErrorDistFromLengths(distFile, outFile, l0, coverage, verbose=0,
     # Estimate digestion error distribution
     q = estimateErrorDist(x, n, l0, coverage, verbose)
     e = np.arange(-np.floor(l0/2), q.size-np.floor(l0/2), dtype=int)
+    
+    if verbose > 0:
+        print >> sys.stderr, 'w = %d' % w
+
+    # Write digestion error distribution in column format to outFile
+    result = np.rec.fromarrays([e,q])
+    write_recarray_to_file(sys.stdout, result, header=False)
+
+def buildConditionalTemplateFromLengths(distFile, outFile, l0, coverage,
+                                        length_min=None, length_max=None,
+                                        verbose=0, rescale=False):
+    '''
+    Wrapper function for template estimation process, conditioning on a
+    particular range of fragment lengths.
+
+    First estimations digestion error distribution, then uses it estimate the
+    conditional template.
+
+    Takes distFile, outFile, l0, and coverage as inputs
+    Writes final template to outFile
+    '''
+    # Read distribution from file
+    x, n = np.loadtxt(distFile, unpack=True)
+    
+    # Estimate digestion error distribution
+    q = estimateErrorDist(x, n, l0, coverage, verbose)
+    e = np.arange(-np.floor(l0/2), q.size-np.floor(l0/2), dtype=int)
+
+    # Estimated distribution of summed lengths
+    q1, q2 = np.zeros( (2, q.size+1+l0) )
+    q1[:q.size] = q
+    q2[-q.size:] = q
+    p = np.convolve(q1, q2)[2*np.floor(l0/2)+1:]
+
+    # Compute conditional distribution of difference given the sum is between
+    # the given values
+    if length_min is None:
+        length_min = 1
+    if length_max is None:
+        length_max = np.max(x)
+
+    w = x.max() - l0 + np.floor(l0/2)
+    P_d = np.zeros((length_max - length_min + 1), 2 * w + 1)
+    for s in xrange(length_min - length_max + 1):
+        P_d[s, ] = 
+    
+    # Find template width
+    coverage = 2*np.cumsum(tComplete[tComplete.size/2+1:])
+    coverage += tComplete[tComplete.size/2]
+    w = np.min( np.where(coverage >= thresh) )
+    
+    # Output final template
+    t = tComplete[tComplete.size/2 - w : tComplete.size/2 + 1 + w]
+    t = t / t.sum()
     
     if verbose > 0:
         print >> sys.stderr, 'w = %d' % w
