@@ -5,10 +5,6 @@ import csv
 import numpy as np
 
 # Set constants
-CHROM_LENGTHS = (230208,813178,316617,1531919,576869,270148,1090947,562643,
-                 439885,745741,666454,1078175,924429,784334,1091289,948062)
-NCHROM = len(CHROM_LENGTHS)
-#
 ORF_START = 1
 ORF_STRIDE = 2
 INTERGENIC_START = 0
@@ -43,7 +39,7 @@ def calcCoverage(regions, reads, regionIds=None):
   return coverage
 
 def mergeRegions(regions, coverage, regionIds=None, minLength=0, normalize=True,
-         verbose=False):
+                 verbose=False):
   '''
   Iteratively merge regions until minimum length constraint is met.
   
@@ -127,17 +123,18 @@ def mergeRegions(regions, coverage, regionIds=None, minLength=0, normalize=True,
   
   return regions
 
-def joinOverlappingOrfs(geneInfoList, geneInfoFields, verbose=False):
+def joinOverlappingOrfs(geneInfoList, geneInfoFields, chrom_lengths,
+                        verbose=False):
   '''
   Combine overlapping ORFs into ORF regions; simplifies subsequent analysis
   '''
   # Initialize ORF region list
   orfRegionList = []
-  for l in CHROM_LENGTHS:
+  for l in chrom_lengths:
     orfRegionList.append(-np.ones(l, dtype=np.int))
 
   # Initialize region codes
-  maxRegionCodes = np.zeros( len(CHROM_LENGTHS), dtype=np.int )
+  maxRegionCodes = np.zeros( len(chrom_lengths), dtype=np.int )
   
   # Iterate through genes
   for gene in geneInfoList:
@@ -146,8 +143,8 @@ def joinOverlappingOrfs(geneInfoList, geneInfoFields, verbose=False):
     tStart = int(gene['start'])
     tStop = int(gene['stop'])
     
-    # Check for validity (chrom > len(CHROM_LENGTHS) -> mitochondrial)
-    if chrom > len(CHROM_LENGTHS):
+    # Check for validity
+    if chrom > len(chrom_lengths):
       continue
     
     # Get ORF & promoter slices in 0-based indexing
@@ -169,12 +166,12 @@ def joinOverlappingOrfs(geneInfoList, geneInfoFields, verbose=False):
   # Rescan through regions to assign identifiers to intergenic regions
   # Keeping odd for ORFs, even for intergenic, monotone increasing 3' to 5'
   regionList = []
-  for chrom in xrange(len(CHROM_LENGTHS)):
+  for chrom in xrange(len(chrom_lengths)):
     # Diagnostic info
     if verbose:
       print >> sys.stderr, "Chromosome\t=\t%d" % chrom
     # Initialize region vector
-    regionList.append(np.zeros(CHROM_LENGTHS[chrom], dtype=np.int))    
+    regionList.append(np.zeros(chrom_lengths[chrom], dtype=np.int))    
     
     # Initialize tags
     activeOrfTag = ORF_START
@@ -184,7 +181,7 @@ def joinOverlappingOrfs(geneInfoList, geneInfoFields, verbose=False):
     
     # Iterate through regions until end of chromosome
     lastPos = 0
-    while lastPos < CHROM_LENGTHS[chrom]-1:
+    while lastPos < chrom_lengths[chrom]-1:
       # Get current region ID
       regionId = orfRegionList[chrom][lastPos]
       
@@ -231,8 +228,8 @@ def joinOverlappingOrfs(geneInfoList, geneInfoFields, verbose=False):
 
   return regionList
 
-def segmentGenome(infoFile, readsFile, outFile, minLength, sep='\t',
-                  normalize=True, verbose=False):
+def segmentGenome(infoFile, readsFile, outFile, minLength,
+                  sep='\t', normalize=True, verbose=False):
   # Read data from infoFile in nice format
   infoReader = csv.DictReader(infoFile, delimiter=sep)
   
@@ -240,35 +237,31 @@ def segmentGenome(infoFile, readsFile, outFile, minLength, sep='\t',
   geneInfoList = []
   for line in infoReader:
     geneInfoList.append(line)
-    
-  # Combine overlapping ORFs into ORF regions
-  initialRegionList = joinOverlappingOrfs(geneInfoList, geneInfoFields)
-  initialRegionIds = [np.unique(x) for x in initialRegionList]
   
+  # Get the reads information
+  readsList = []
+  for line in readsFile:
+    readsList.append( np.fromstring( line, sep=',' ) )
+
+  chrom_lengths = [np.size(x) for x in readsList]
+  
+  # Combine overlapping ORFs into ORF regions
+  initialRegionList = joinOverlappingOrfs(geneInfoList, geneInfoFields,
+                                          chrom_lengths)
+  initialRegionIds = [np.unique(x) for x in initialRegionList]
+
+  # Calculate coverage for each identified region
+  coverageList = list()
+  for chrom in xrange(len(chrom_lengths)):
+    coverageList.append(calcCoverage(initialRegionList[chrom], readsList[chrom],
+                                     initialRegionIds[chrom]))
+
   if verbose:
     print >> sys.stderr, "Initial regions done"  
   
-  # Setup uniform coverage list; retain if coverage information not available
-  coverageList = []
-  for l in CHROM_LENGTHS:
-    coverageList.append(np.ones(l))
-    
-  # Get reads information if available
-  if readsFile is not None:
-    # Get the reads information
-    readsList = []
-    for line in readsFile:
-      readsList.append( np.fromstring( line, sep=',' ) )
-    
-    # Calculate coverage for each identified region
-    for chrom in xrange(len(CHROM_LENGTHS)):
-      coverageList[chrom] = calcCoverage(initialRegionList[chrom],
-                         readsList[chrom],
-                         initialRegionIds[chrom])
-  
   # Merge short regions until length constraint is met
   mergedRegionList = []
-  for chrom in xrange(len(CHROM_LENGTHS)):
+  for chrom in xrange(len(chrom_lengths)):
     mergedRegionList.append(mergeRegions(initialRegionList[chrom],
                                          coverageList[chrom],
                                          regionIds=initialRegionIds[chrom],

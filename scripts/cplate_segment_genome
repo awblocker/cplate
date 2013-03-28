@@ -46,8 +46,8 @@ def main(argv):
   verbose = 0
   
   # Parse arguments and options
-  opts, args = getopt.getopt(argv, "hl:s:v:",
-                 ["help", "minlength=", "sep=", "verbose="])
+  opts, args = getopt.getopt(
+      argv, "hl:s:v:", ["help", "minlength=", "sep=", "verbose="])
   for option, value in opts:
     if option in ('-h', "--help"):
       print >> sys.stderr, HELP
