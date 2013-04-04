@@ -29,7 +29,8 @@ def convert_dtype_to_fmt(dtype, quote=True):
     
     return fmt
 
-def write_recarray_to_file(fname, data, header=True, sep=' ', quote=False):
+def write_recarray_to_file(fname, data, header=True, sep=' ', quote=False,
+                           fmt=None):
     '''
     Write numpy record array to file as delimited text.
     
@@ -45,7 +46,10 @@ def write_recarray_to_file(fname, data, header=True, sep=' ', quote=False):
     if header: header_str = sep.join(fieldnames) + '\n'
     
     # Build format string for numeric data
-    fmt = sep.join( convert_dtype_to_fmt(data.dtype, quote) ) + '\n'
+    if fmt is None:
+        fmt = sep.join( convert_dtype_to_fmt(data.dtype, quote) ) + '\n'
+    else:
+        fmt = sep.join(fmt) + '\n'
     
     # Setup output file object
     if type(fname) is file:
