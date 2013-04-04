@@ -714,7 +714,7 @@ def get_cluster_centers(x, window, min_spacing, edge_correction=True):
     # Return their locations, not indicators
     return clusters
 
-def summarise(cfg, chrom=1, null=False, mmap=False):
+def summarise(cfg, chrom=1, null=False, mmap=False, detect_fmt=("%.1f", "%d")):
     '''
     Coordinate summarisation of MCMC results.
 
@@ -902,7 +902,7 @@ def summarise(cfg, chrom=1, null=False, mmap=False):
             detections = np.rec.fromarrays([detected, n],
                                            names=('pos', 'n'))
             libio.write_recarray_to_file(fname=path_detections, data=detections,
-                                         header=True, sep=' ')
+                                         header=True, sep=' ', fmt=detect_fmt)
 
     # Clean-up scratch directory
     for name in names_npy:
@@ -1194,7 +1194,7 @@ def summarise_params(cfg, chrom=1, null=False):
 
     return 0
 
-def detect_from_summaries(cfg, chrom=1):
+def detect_from_summaries(cfg, chrom=1, detect_fmt=("%.1f", "%d")):
     '''
     Detect local concentrations based on existing summaries.
 
@@ -1248,7 +1248,7 @@ def detect_from_summaries(cfg, chrom=1):
             detections = np.rec.fromarrays([detected, n],
                                            names=('pos', 'n'))
             libio.write_recarray_to_file(fname=path_detections, data=detections,
-                                         header=True, sep=' ')
+                                         header=True, sep=' ', fmt=detect_fmt)
 
     return 0
 
