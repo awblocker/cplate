@@ -508,9 +508,11 @@ def condense_detections(detections):
 
     while np.any(np.diff(x) < 2):
         first = np.min(np.where(np.diff(x)<2)[0])
+        last = first + np.min(np.r_[np.where(np.diff(x[first:]) > 1)[0],
+                                    x[first:].size - 1]) + 1
         x *= n
-        x = np.r_[ x[:first], (x[first] + x[first+1]), x[first+2:]]
-        n = np.r_[ n[:first], (n[first] + n[first+1]), n[first+2:]]
+        x = np.r_[x[:first], np.sum(x[first:last]), x[last:]]
+        n = np.r_[n[:first], np.sum(n[first:last]), n[last:]]
         x /= n
 
     return x, n
