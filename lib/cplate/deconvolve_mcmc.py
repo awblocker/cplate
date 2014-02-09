@@ -18,11 +18,11 @@ import libio
 # Set constants
 
 # MPI constants
-MPIROOT     = 0
+MPIROOT = 0
 # Tags for worker states
-STOPTAG     = 0
-SYNCTAG     = 1
-WORKTAG     = 2
+STOPTAG = 0
+SYNCTAG = 1
+WORKTAG = 2
 
 def load_data(chrom, cfg, null=False):
     '''
@@ -143,15 +143,15 @@ def initialize(data, cfg, rank=None, null=False):
     '''
     # Create references to frequently-accessed config information
     # Prior on 1 / sigmasq
-    a0  = cfg['prior']['a0']
-    b0  = cfg['prior']['b0']
+    a0 = cfg['prior']['a0']
+    b0 = cfg['prior']['b0']
     # Verbosity
     verbose = cfg['estimation_params']['verbose']
 
     # Create references to relevant data entries in local namespace
-    y            = data['y']
-    region_list  = data['region_list']
-    region_ids   = data['region_ids']
+    y = data['y']
+    region_list = data['region_list']
+    region_ids = data['region_ids']
     region_sizes = data['region_sizes']
 
     # Compute needed data properties
@@ -197,15 +197,15 @@ def initialize(data, cfg, rank=None, null=False):
             region = region_list[r]
 
             # Draw sigmasq from marginal distribution
-            shape_sigmasq   = region_sizes[r]/.2 + a0
-            rate_sigmasq    = np.var(theta[region])*region_sizes[r]/2. + b0
-            sigmasq[r]      = 1./np.random.gamma(shape=shape_sigmasq,
-                                                 scale=1./rate_sigmasq)
+            shape_sigmasq = region_sizes[r]/.2 + a0
+            rate_sigmasq = np.var(theta[region])*region_sizes[r]/2. + b0
+            sigmasq[r] = 1./np.random.gamma(shape=shape_sigmasq,
+                                            scale=1./rate_sigmasq)
 
             # Draw mu | sigmasq
             mean_mu = np.mean(theta[region])
-            var_mu  = sigmasq[r] / region_sizes[r]
-            mu[r]   = mean_mu + np.sqrt(var_mu)*np.random.randn(1)
+            var_mu = sigmasq[r] / region_sizes[r]
+            mu[r] = mean_mu + np.sqrt(var_mu)*np.random.randn(1)
 
     if verbose:
         print "Node %d initialization complete" % rank
@@ -254,10 +254,10 @@ def master(comm, n_proc, data, init, cfg):
     # Create references to frequently-accessed config information
     # Prior on mu - sigmasq / 2
     mu0 = cfg['prior']['mu0']
-    k0  = cfg['prior']['k0']
+    k0 = cfg['prior']['k0']
     # Prior on 1 / sigmasq
-    a0  = cfg['prior']['a0']
-    b0  = cfg['prior']['b0']
+    a0 = cfg['prior']['a0']
+    b0 = cfg['prior']['b0']
     # Iteration limits
     max_iter = cfg['mcmc_params']['mcmc_iterations']
     # Verbosity
@@ -269,10 +269,10 @@ def master(comm, n_proc, data, init, cfg):
     adapt_prior = (mu0 is None)
 
     # Create references to relevant data entries in local scope
-    y           = data['y']
-    region_list  = data['region_list']
+    y = data['y']
+    region_list = data['region_list']
     region_sizes = data['region_sizes']
-    region_ids   = data['region_ids']
+    region_ids = data['region_ids']
     # Template and derived properties
     template = data['template']
     w = template.size/2 + 1
@@ -282,14 +282,14 @@ def master(comm, n_proc, data, init, cfg):
     n_regions = region_ids.max() + 1
 
     # Initialize data structures for draws
-    theta       = np.empty((max_iter, chrom_length))
-    theta[0]    = init['theta']
+    theta = np.empty((max_iter, chrom_length))
+    theta[0] = init['theta']
     #
-    mu          = np.empty((max_iter, n_regions))
-    mu[0]       = init['mu']
+    mu = np.empty((max_iter, n_regions))
+    mu[0] = init['mu']
     #
-    sigmasq     = np.empty((max_iter, n_regions))
-    sigmasq[0]  = init['sigmasq']
+    sigmasq = np.empty((max_iter, n_regions))
+    sigmasq[0] = init['sigmasq']
 
     # Compute block width for parallel theta draws
     n_workers = n_proc - 1
@@ -366,9 +366,9 @@ def master(comm, n_proc, data, init, cfg):
         theta[t] = theta[t-1]
 
         # Dispatch jobs to workers until completed
-        n_jobs       = start_vec.size
-        n_started    = 0
-        n_completed  = 0
+        n_jobs = start_vec.size
+        n_started = 0
+        n_completed = 0
 
         # Randomize block ordering
         np.random.shuffle(start_vec)
@@ -433,16 +433,16 @@ def master(comm, n_proc, data, init, cfg):
             region = region_list[r]
 
             # Draw sigmasq from marginal distribution
-            shape_sigmasq   = region_sizes[r]/2. + a0
-            rate_sigmasq    = (np.var(theta[t,region])*region_sizes[r]/2. + b0
-                               + k0*region_sizes[r]/2./(1.+k0)*
-                               (np.mean(theta[t,region]) - prior_mean[r])**2)
-            sigmasq[t,r]    = rate_sigmasq/np.random.gamma(shape=shape_sigmasq,
-                                                           scale=1.)
+            shape_sigmasq = region_sizes[r]/2. + a0
+            rate_sigmasq = (np.var(theta[t,region])*region_sizes[r]/2. + b0
+                            + k0*region_sizes[r]/2./(1.+k0)*
+                            (np.mean(theta[t,region]) - prior_mean[r])**2)
+            sigmasq[t,r] = rate_sigmasq/np.random.gamma(shape=shape_sigmasq,
+                                                        scale=1.)
 
             # Draw mu | sigmasq
             mean_mu = (np.mean(theta[t,region]) + prior_mean[r]*k0)/(1.0 + k0)
-            var_mu  = sigmasq[t,r] / (1. + k0) / region_sizes[r]
+            var_mu = sigmasq[t,r] / (1. + k0) / region_sizes[r]
             mu[t,r] = mean_mu + np.sqrt(var_mu)*np.random.randn(1)
 
         if verbose:
@@ -482,7 +482,7 @@ def rmh_worker_theta(comm, block_width, start, y, template, theta, mu, sigmasq,
     # Calculate subset of data to work on
     end = min(chrom_length, start + block_width)
     block = slice(max(start-w, 0), min(end+w, chrom_length))
-    size_block  = block.stop - block.start
+    size_block = block.stop - block.start
 
     subset = slice(w*(start!=0)+start-block.start,
                    size_block-w*(end!=chrom_length) - (block.stop-end))
@@ -490,8 +490,8 @@ def rmh_worker_theta(comm, block_width, start, y, template, theta, mu, sigmasq,
 
     original = slice(start-block.start, size_block - (block.stop-end))
 
-    theta_block     = theta[block]
-    theta_subset    = theta_block[subset]
+    theta_block = theta[block]
+    theta_subset = theta_block[subset]
 
     # Setup initial return value
     ret_val = np.empty(block_width)
@@ -602,7 +602,7 @@ def rhmc_worker_theta(comm, block_width, start, y, template, theta, mu, sigmasq,
     # Calculate subset of data to work on
     end = min(chrom_length, start + block_width)
     block = slice(max(start-w, 0), min(end+w, chrom_length))
-    size_block  = block.stop - block.start
+    size_block = block.stop - block.start
 
     original = slice(start-block.start, size_block - (block.stop-end))
 
@@ -610,8 +610,8 @@ def rhmc_worker_theta(comm, block_width, start, y, template, theta, mu, sigmasq,
                    size_block-w*(end!=chrom_length) - (block.stop-end))
     size_subset = subset.stop - subset.start
     
-    theta_block     = theta[:size_block]
-    theta_subset    = theta_block[subset]
+    theta_block = theta[:size_block]
+    theta_subset = theta_block[subset]
 
     # Setup initial return value
     ret_val = np.empty(block_width)
@@ -739,7 +739,7 @@ def rhmc_worker_beta(comm, block_width, start, y, template, theta, mu, sigmasq,
     # Calculate subset of data to work on
     end = min(chrom_length, start + block_width)
     block = slice(max(start-w, 0), min(end+w, chrom_length))
-    size_block  = block.stop - block.start
+    size_block = block.stop - block.start
 
     original = slice(start-block.start, size_block - (block.stop-end))
 
@@ -747,8 +747,8 @@ def rhmc_worker_beta(comm, block_width, start, y, template, theta, mu, sigmasq,
                    size_block-w*(end!=chrom_length) - (block.stop-end))
     size_subset = subset.stop - subset.start
     
-    beta_block     = np.exp(theta[:size_block])
-    beta_subset    = beta_block[subset]
+    beta_block = np.exp(theta[:size_block])
+    beta_subset = beta_block[subset]
 
     # Setup initial return value
     ret_val = np.empty(block_width)
@@ -870,7 +870,7 @@ def worker(comm, rank, n_proc, data, init, cfg):
         None.
     '''
     # Create references to relevant data entries in local namespace
-    y           = data['y']
+    y = data['y']
     region_types = data['region_types']
     # Template and derived properties
     template = data['template']
@@ -880,7 +880,7 @@ def worker(comm, rank, n_proc, data, init, cfg):
     chrom_length = y.size
 
     # Extract needed initializations for parameters
-    mu      = init['mu']
+    mu = init['mu']
     sigmasq = init['sigmasq']
 
     # Compute block width for parallel MH step
