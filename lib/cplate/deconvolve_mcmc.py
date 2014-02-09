@@ -298,9 +298,6 @@ def master(comm, n_proc, data, init, cfg):
     else:
         block_width = cfg['estimation_params']['block_width']
 
-    # Compute maximum size of theta slices to send
-    theta_buf_size = block_width + 2*w
-
     # Setup prior means
     prior_mean = np.zeros(n_regions)
     if adapt_prior:
@@ -332,6 +329,11 @@ def master(comm, n_proc, data, init, cfg):
                  np.arange(block_width/2, chrom_length, block_width,
                            dtype=np.int)]
     start_vec = np.concatenate(start_vec)
+    # Remove any blocks that are too small to buffer by w
+    block_sizes = np.minimum(start_vec + block_width, chrom_length) - start_vec
+    start_vec = start_vec[block_sizes > w]
+    # Setup buffer for sending and recieving chunks of theta
+    theta_buf_size = block_width + 2*w
     theta_send_buf = np.empty(theta_buf_size, dtype=np.float)
 
     # Initialize acceptance statistics
