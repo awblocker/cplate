@@ -383,7 +383,7 @@ def posterior_variances(**kwargs):
         if len(np.shape(draws)) < 2:
             draws = draws[:,np.newaxis]
 
-        # Estimate posterior means
+        # Estimate posterior variances
         variances[var] = np.var(draws, 0)
 
     if len(kwargs) > 1:
@@ -807,17 +807,29 @@ def summarise(cfg, chrom=1, null=False, mmap=False, detect_fmt=("%.1f", "%d")):
         p_local_concentration = np.zeros(theta.shape[1], dtype=np.float)
         
         # Iterate over draws
+        mean_lro = np.zeros(theta.shape[1], dtype=np.float)
+        se_lro = np.zeros(theta.shape[1], dtype=np.float)
         for t in xrange(theta.shape[0]):
             bt = np.exp(theta[t])
             local_occupancy_smoothed = local_relative_occupancy(bt, window_pm,
                                                                 window_local)
+            delta = local_occupancy_smoothed - mean_lro
+            mean_lro += delta / (t+1.)
+            se_lro += delta * (local_occupancy_smoothed - mean_lro)
             p_local_concentration *= t/(t+1.)
             p_local_concentration += ((local_occupancy_smoothed >
                                        baseline)/(t+1.))
+        se_lro = np.sqrt(se_lro / (theta.shape[0] - 1))
         
-        # Store result in dictionary
+        # Store results in dictionary
         key = 'p_local_concentration_pm%d' % pm
         local_concentrations[key] = p_local_concentration
+        key = 'mean_local_concentration_pm%d' % pm
+        local_concentrations[key] = mean_lro
+        key = 'se_local_concentration_pm%d' % pm
+        local_concentrations[key] = se_lro
+        key = 'z_local_concentration_pm%d' % pm
+        local_concentrations[key] = mean_lro / se_lro
 
         # Clean-up
         del local_occupancy_smoothed
