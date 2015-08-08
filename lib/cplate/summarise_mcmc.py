@@ -542,7 +542,7 @@ def greedy_maxima_search(x, min_spacing=100, remove_boundary=1, verbose=0):
     '''
     # Find local maxima in sequence; need indices of maxima, not binary
     # indicators
-    candidates       = np.where(find_maxima(x))[0]
+    candidates = np.where(find_maxima(x))[0]
 
     if remove_boundary > 0:
         # Exclude boundary positions
@@ -811,14 +811,14 @@ def summarise(cfg, chrom=1, null=False, mmap=False, detect_fmt=("%.1f", "%d")):
         se_lro = np.zeros(theta.shape[1], dtype=np.float)
         for t in xrange(theta.shape[0]):
             bt = np.exp(theta[t])
-            local_occupancy_smoothed = local_relative_occupancy(bt, window_pm,
-                                                                window_local)
+            local_occupancy_smoothed = local_relative_occupancy(
+                bt, window_pm, window_local)
             delta = local_occupancy_smoothed - mean_lro
             mean_lro += delta / (t+1.)
             se_lro += delta * (local_occupancy_smoothed - mean_lro)
             p_local_concentration *= t/(t+1.)
-            p_local_concentration += ((local_occupancy_smoothed >
-                                       baseline)/(t+1.))
+            p_local_concentration += (
+                (local_occupancy_smoothed > baseline)/(t+1.))
         se_lro = np.sqrt(se_lro / (theta.shape[0] - 1))
         
         # Store results in dictionary
