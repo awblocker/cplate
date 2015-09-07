@@ -105,10 +105,7 @@ def main(argv):
                     print >> sys.stderr, ("Error --- Cannot read and write to %s" %
                                           scratch)
                     continue
-            else:
-                # Otherwise, try to make the directory
-                os.makedirs(scratch)
-        
+
         if run_all:
             chrom_list = range(1, cfg['data']['n_chrom']+1)
         

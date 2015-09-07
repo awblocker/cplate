@@ -97,6 +97,8 @@ def write_arrays_to_tarball(fname, compress='bz2', scratch=None, **kwargs):
     # Make scratch directory if needed
     if scratch is None:
         scratch = tempfile.mkdtemp()
+    if not os.path.exists(scratch):
+        os.makedirs(scratch)
 
     # Save each array to its own npy file and archive npy files into compressed
     # tarball

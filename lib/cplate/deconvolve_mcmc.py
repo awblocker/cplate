@@ -1,3 +1,4 @@
+import os
 import sys
 import time
 import bz2
@@ -1050,7 +1051,11 @@ def save_results(results, cfg, chrom=1, null=False):
 
     out_path = out_pattern.format(**cfg) % chrom
 
-    libio.write_arrays_to_tarball(fname=out_path, compress='',
-                                  scratch=cfg['mcmc_params']['path_scratch'],
+    # Use a chromosome-specific scratch directory.
+    scratch_dir = os.path.join(cfg['mcmc_params']['path_scratch'],
+                               str(chrom))
+    libio.write_arrays_to_tarball(fname=out_path,
+                                  compress='',
+                                  scratch=scratch_dir,
                                   **results)
 
