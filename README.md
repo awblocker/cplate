@@ -105,9 +105,6 @@ For `analyze_fdr.R`, the `plyr`, `stringr`, `reshape2`, `yaml`, `qvalue`, and
 `ascii` packages are required from CRAN. The `qvalue` package from Bioconductor
 is also required.
 
-To use `lib.R` and `lib.cpp` in subsequent analyses, the only requirement is the
-`Rcpp` package.
-
 ## Usage - Case study
 
 To illustrate how the entire analysis works, we're going to go through an
