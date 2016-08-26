@@ -1,0 +1,89 @@
+{
+    "data": {
+        "chrom_path": "./rawData/counts_chr20.txt",
+        "length_dist_path": "./rawData/fragment_length_dist_gaffney2012.txt",
+        "n_chrom": 1721,
+        "null_path": "./derivedData/null_chr20.txt",
+        "regions_path": "./derivedData/regions_chr20.txt",
+        "template_path": "./derivedData/template_gaffney2012.txt"
+    },
+    "detection_output": {
+        "detected_pattern": "emOutput/detected_gaffney-chr20_gene%02d.txt",
+        "fdr_pattern": "emOutput/threshold_gaffney-chr20_gene%02d.txt"
+    },
+    "detection_params": {
+        "alpha": 0.001,
+        "compute_maxima_only": false,
+        "detect_maxima_only": true,
+        "method_fdr": "bh",
+        "n_proc": 8,
+        "use_bayes_se": true,
+        "verbose": 1
+    },
+    "estimation_output": {
+        "coef_pattern": "emOutput/coef_gaffney-chr20_gene%02d.txt",
+        "null_coef_pattern": "emOutput/coef_control_gaffney-chr20_gene%02d.txt",
+        "null_param_pattern": "emOutput/params_control_gaffney-chr20_gene%02d.txt",
+        "null_se_pattern": "emOutput/se_control_gaffney-chr20_gene%02d.txt",
+        "param_pattern": "emOutput/params_gaffney-chr20_gene%02d.txt",
+        "se_pattern": "emOutput/se_gaffney-chr20_gene%02d.txt"
+    },
+    "estimation_params": {
+        "block_width": 10000,
+        "diag_approx": true,
+        "fix_mu": false,
+        "fix_sigmasq": false,
+        "max_iter": 1024,
+        "max_mem": 2048,
+        "min_iter": 48,
+        "timing": true,
+        "tol": 1e-06,
+        "verbose": 1
+    },
+    "mcmc_output": {
+        "out_pattern": "mcmcOutput/mcmc_draws_gaffney-chr20_gene%02d.tar",
+        "null_out_pattern": "mcmcOutput/mcmc_draws_control_gaffney-chr20_gene%02d.tar",
+        "cluster_pattern": "mcmcSummaries/mcmc_clusters_gaffney-chr20_gene%02d.txt",
+        "detections_pattern": "mcmcSummaries/mcmc_detections_gaffney-chr20_gene%02d_pm%d.txt",
+        "null_cluster_pattern": "mcmcSummaries/mcmc_clusters_control_gaffney-chr20_gene%02d.txt",
+        "null_param_pattern": "mcmcSummaries/mcmc_params_control_gaffney-chr20_gene%02d.txt",
+        "null_summary_pattern": "mcmcSummaries/mcmc_summaries_control_gaffney-chr20_gene%02d.txt",
+        "param_pattern": "mcmcSummaries/mcmc_params_gaffney-chr20_gene%02d.txt",
+        "summary_pattern": "mcmcSummaries/mcmc_summaries_gaffney-chr20_gene%02d.txt"
+    },
+    "mcmc_params": {
+        "initialize_params_from_em": false,
+        "initialize_theta_from_em": false,
+        "mcmc_iterations": 2001,
+        "n_burnin": 201,
+        "path_scratch": "/scratch/gaffney-chr20-genes"
+    },
+    "mcmc_summaries": {
+        "bp_per_nucleosome": 160.0,
+        "cluster_bw": 20.0,
+        "cluster_min_spacing": 147,
+        "cluster_width": 147,
+        "concentration_pm": "0,1,2,3",
+        "p_detect": 0.7,
+        "p_threshold": "0.5,0.33,0.25,0.10,0.05,0.03,0.01",
+        "path_scratch": "/scratch/gaffney-chr20-genes",
+        "q_sparsity": "0.5,0.6,0.7,0.8,0.9",
+        "width_local": 147
+    },
+    "plotting_output": {
+        "gene_plot_pattern": "plots/gene_gaffney-chr20-genes_%s.png",
+        "offset_plot_path": "plots/offset_gaffney-chr20-genes.png",
+        "spacing_plot_path": "plots/histNucleosomeSpacing_gaffney-chr20-genes.png"
+    },
+    "prior": {
+        "a0": 7.0,
+        "b0": 10.0,
+        "k0": 0.1,
+        "mu0": 0
+    },
+    "processing_output": {
+        "nucleosome_pattern": "postprocess/nucleosomes_gaffney-chr20_gene%02d.txt",
+        "offset_pattern": "postprocess/offsets_gaffney-chr20_gene%02d.txt",
+        "separator": ""
+    }
+}
