@@ -1,0 +1,147 @@
+# Paths and properties for the data
+data:
+    # Number of chromosomes
+    n_chrom: 1
+    # Ragged array of read center counts
+    chrom_path: data/y_experiment.txt
+    # Distribution of aligned fragment lengths
+    length_dist_path: data/lengthDist_experiment.txt
+    # Ragged array of null (simulated) counts
+    null_path: data/yNull_experiment.txt
+    # Region identifiers from segmentation of geneom
+    regions_path: data/regions_experiment.txt
+    # Estimated template
+    template_path: data/template_experiment.txt
+
+# Prior on hyperparameters
+prior:
+    # Prior on mu, conjugate Normal prior
+    mu0: 0 # Null -> adapt based on local coverage
+    k0: 0.1
+    # Prior on 1 / sigmasq, gamma shape and rate parameters
+    a0: 7.
+    b0: 10.
+
+# Parameters for EM and MCMC estimation
+estimation_params:
+    # Manually set block width; Null selects automatically based on number of
+    # workers. Used for EM and MCMC algorithms
+    block_width: 400
+    # All remaining parameters in this section are used ONLY IN THE EM ALGORITHM
+    # Tolerance for convergence
+    tol: 0.000001
+    # Iteration limits
+    min_iter: 48
+    max_iter: 1024
+    # Memory limit for inversion of Hessian, in MB
+    max_mem: 2048
+    # Flag to activate diagonal approximation for Hessian inversion
+    diag_approx: True
+    # Verbosity and timing of iterations
+    verbose: 2
+    timing: True
+    # Flags to fix mu and sigmasq; useful for debugging ONLY
+    fix_mu: False
+    fix_sigmasq: False
+
+# Parameters solely for the MCMC
+mcmc_params:
+    # Number of iterations for MCMC including initialization
+    mcmc_iterations: 2001
+    # Number of iterations to remove as burnin
+    n_burnin: 201
+    # Initialize from EM output?
+    initialize_theta_from_em: False
+    initialize_params_from_em: False
+    # Path to scratch directory. Should be unique to experiment to avoid
+    # conflicts
+    path_scratch: /scratch/example
+
+# Patterns for MCMC output
+# These need to be C-style formatting strings
+#
+# All except for detections_pattern will be formatted as pattern % chrom,
+# where chrom is an integer for the chromsome.
+#
+# detections_pattern will be formatted as pattern % (chrom, pm) where pm is the
+# width of the local window for local concentration estimands.
+mcmc_output:
+    # MCMC draws, a tar file of .npy files
+    out_pattern: results/mcmc_draws_example_chrom%02d.tar
+    # Null MCMC draws, a tar file of .npy files
+    null_out_pattern: results/mcmc_draws_null_example_chrom%02d.tar
+    # MCMC summaries, one per chromosome
+    summary_pattern: results/mcmc_summaries_example_chrom%02d.txt
+    # Null MCMC summaries, one per chromosome
+    null_summary_pattern: results/mcmc_summaries_null_example_chrom%02d.txt
+    # Detections of local concentrations, one per chromosome and pm setting
+    detections_pattern: results/mcmc_detections_example_chrom%02d_pm%d.txt
+    # Cluster estimands, one per chromosome
+    cluster_pattern: results/mcmc_clusters_example_chrom%02d.txt
+    # Null cluster estimands, one per chromosome
+    null_cluster_pattern: results/mcmc_clusters_null_example_chrom%02d.txt
+
+# Settings for posterior summaries. Estimands, not estimation.
+mcmc_summaries:
+    # Path to scratch directory
+    path_scratch: /scratch/example
+    # Width of window for local relative occupancy summaries
+    width_local: 147
+    # Number of basepairs to look for concentrations +/-
+    concentration_pm: 0,1,2,3
+    # Posterior probability threshold for detection of local concentrations
+    # Optional; if Null, no detections are returned
+    p_detect: 0.8
+    # Bp per nucleosome; used in calculation of global concentration estimands
+    bp_per_nucleosome: 160.
+    # Minimum spacing for Parzen window clustering
+    cluster_min_spacing: 147
+    # Window bandwidth (sigma) for Parzen window clustering
+    cluster_bw: 20.
+    # Cluster width for cluster-level analyses; should be an odd integer
+    cluster_width: 147
+    # Relative occupancy thresholds for nlarge estimands
+    p_threshold: 0.5,0.33,0.25,0.10,0.05,0.03,0.01
+    # Quantiles for sparsity estimands
+    q_sparsity: 0.5,0.6,0.7,0.8,0.9
+
+
+# The remaining parameters are used only for the EM version of the inference
+# algorithm. If you are using only the MCMC version, they will never be
+# referenced.
+
+estimation_output:
+    coef_pattern: results/coef_example_chrom%02d.txt
+    param_pattern: results/params_example_chrom%02d.txt
+    se_pattern: results/se_example_chrom%02d.txt
+    null_coef_pattern: results/coef_null_example_chrom%02d.txt
+    null_param_pattern: results/params_null_example_chrom%02d.txt
+    null_se_pattern: results/se_example_chrom%02d.txt
+
+detection_params:
+    # Maximum FDR and P(theta_k < mu | y) for detection
+    alpha: 0.001
+    # Method for FDR estimation. 'crude' uses empirical frequencies via plugin.
+    # 'direct' uses direct method of Storey (2002). 'BH' uses the
+    # Benjamini-Hochberg method and should be robust to positive dependence.
+    method_fdr: bh
+    # Use only local maxima to compute FDR
+    compute_maxima_only: False
+    # Report only local maxima
+    detect_maxima_only: True
+    # Use standard errors for Bayesian hybrid detection method
+    use_bayes_se: True
+    # Number of processes for parallel numerical integration
+    n_proc: 4
+    # Verbosity
+    verbose: 1
+
+detection_output:
+    fdr_pattern: results/threshold_example_chrom%02d.txt
+    detected_pattern: results/detected_example_chrom%02d.txt
+
+processing_output:
+    nucleosome_pattern: postprocess/nucleosomes_example_chrom%02d.txt
+    offset_pattern: postprocess/offsets_example_chrom%02d.txt
+    separator: " "
+
