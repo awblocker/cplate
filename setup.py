@@ -15,7 +15,8 @@ PACKAGES = ['cplate']
 SCRIPTS = ('deconvolve_em', 'deconvolve_mcmc', 'detect_em', 'detect_mcmc',
            'summarise_mcmc', 'summarise_clusters_mcmc', 'summarise_params_mcmc',
            'estimate_template', 'estimate_digestion_dist', 'segment_genome',
-           'simulate_null')
+           'simulate_null', 'betas_to_bed.py', 'clusters_to_bed.py',
+           'detections_to_bed.py')
 SCRIPTS = ['scripts/cplate_' + script for script in SCRIPTS]
 
 setup(name=NAME,
